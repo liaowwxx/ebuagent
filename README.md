@@ -11,6 +11,8 @@ npm start
 
 打开 http://localhost:4173
 
+**本地鉴权：** 在 `.env` 中设置 `AUTH_USERNAME` 和 `AUTH_PASSWORD` 即可启用登录。留空则不启用鉴权。
+
 ## 接入大模型
 
 服务端读取 OpenAI-compatible 环境变量：
@@ -43,6 +45,8 @@ npm run prepare:public
 
 ```text
 functions/api/recommend/stream.js
+functions/api/login.js
+functions/api/check.js
 ```
 
 Cloudflare Pages 构建设置：
@@ -59,7 +63,12 @@ Build output directory: public
 OPENAI_BASE_URL=https://api.deepseek.com
 OPENAI_MODEL=deepseek-v4-flash
 OPENAI_API_KEY=你的新 DeepSeek key
+AUTH_USERNAME=你的登录账号
+AUTH_PASSWORD=你的登录密码
+AUTH_SECRET=一个随机字符串（用于签名会话令牌）
 ```
+
+> `AUTH_SECRET` 可以用 `openssl rand -hex 32` 生成。
 
 不要上传本地 `.env`。正式部署前建议更换新的 API key。
 

@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { createReadStream } from "node:fs";
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -8,6 +9,7 @@ import {
   modelConfigFromEnv,
   sseHeaders
 } from "./src/recommendation-core.js";
+import { createRateLimiter } from "./src/rate-limiter.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -149,10 +151,135 @@ async function serveFile(req, res, filePath) {
   stream.pipe(res);
 }
 
+// ---- Auth (Node.js) --------------------------------------------------------
+
+const COOKIE_NAME = "auth_token";
+const AUTH_ENABLED = !!(process.env.AUTH_USERNAME && process.env.AUTH_PASSWORD);
+
+function parseCookieHeader(header) {
+  const map = {};
+  if (!header) return map;
+  for (const part of header.split(";")) {
+    const idx = part.indexOf("=");
+    if (idx === -1) continue;
+    const name = part.slice(0, idx).trim();
+    const value = decodeURIComponent(part.slice(idx + 1).trim());
+    if (name) map[name] = value;
+  }
+  return map;
+}
+
+function signTokenNode(payload, secret) {
+  const data = JSON.stringify(payload);
+  const sig = crypto.createHmac("sha256", secret).update(data).digest("hex");
+  return Buffer.from(data).toString("base64") + "." + sig;
+}
+
+function verifyTokenNode(token, secret) {
+  if (!token || !secret) return null;
+  try {
+    const dot = token.lastIndexOf(".");
+    if (dot === -1) return null;
+    const b64 = token.slice(0, dot);
+    const sig = token.slice(dot + 1);
+    const data = Buffer.from(b64, "base64").toString("utf8");
+    const expected = crypto.createHmac("sha256", secret).update(data).digest("hex");
+    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+    const payload = JSON.parse(data);
+    if (payload.exp && payload.exp < Date.now()) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+const loginLimiter = createRateLimiter({ maxAttempts: 5, windowMs: 60_000 });
+
+function setCookieHeader(token) {
+  const maxAge = 7 * 24 * 60 * 60;
+  return `${COOKIE_NAME}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
+}
+
+async function handleLogin(req, res) {
+  const clientIp =
+    req.headers["cf-connecting-ip"] ||
+    req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+    req.socket.remoteAddress ||
+    "unknown";
+
+  const limit = loginLimiter.check(clientIp);
+  if (!limit.allowed) {
+    res.writeHead(429, {
+      "content-type": "application/json; charset=utf-8",
+      "retry-after": String(limit.retryAfter)
+    });
+    res.end(
+      JSON.stringify({
+        error: `尝试次数过多，请 ${limit.retryAfter} 秒后再试。`
+      })
+    );
+    return;
+  }
+
+  const { username, password } = await readBody(req);
+  if (!username || !password) {
+    sendJson(res, 400, { error: "请输入账号和密码。" });
+    return;
+  }
+  if (username !== process.env.AUTH_USERNAME || password !== process.env.AUTH_PASSWORD) {
+    sendJson(res, 401, { error: "账号或密码错误。" });
+    return;
+  }
+
+  const token = signTokenNode(
+    { username, exp: Date.now() + 7 * 24 * 60 * 60 * 1000 },
+    process.env.AUTH_SECRET
+  );
+  res.writeHead(200, {
+    "content-type": "application/json; charset=utf-8",
+    "set-cookie": setCookieHeader(token)
+  });
+  res.end(JSON.stringify({ ok: true }));
+}
+
+function handleCheck(req, res) {
+  const cookies = parseCookieHeader(req.headers.cookie);
+  const payload = verifyTokenNode(cookies[COOKIE_NAME], process.env.AUTH_SECRET);
+  if (!payload) {
+    sendJson(res, 401, { authenticated: false });
+    return;
+  }
+  sendJson(res, 200, { authenticated: true, username: payload.username });
+}
+
+function authGuard(req, res) {
+  if (!AUTH_ENABLED) return true;
+  const cookies = parseCookieHeader(req.headers.cookie);
+  const payload = verifyTokenNode(cookies[COOKIE_NAME], process.env.AUTH_SECRET);
+  if (!payload) {
+    sendJson(res, 401, { error: "请先登录。" });
+    return false;
+  }
+  return true;
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
 
+  // Auth endpoints
+  if (AUTH_ENABLED) {
+    if (req.method === "POST" && url.pathname === "/api/login") {
+      await handleLogin(req, res);
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/check") {
+      handleCheck(req, res);
+      return;
+    }
+  }
+
   if (req.method === "POST" && url.pathname === "/api/recommend/stream") {
+    if (!authGuard(req, res)) return;
     await handleRecommendStream(req, res);
     return;
   }

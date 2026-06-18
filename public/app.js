@@ -1,3 +1,83 @@
+// ---- Auth ----------------------------------------------------------------
+const loginOverlay = document.querySelector("#loginOverlay");
+const loginForm = document.querySelector("#loginForm");
+const loginUsername = document.querySelector("#loginUsername");
+const loginPassword = document.querySelector("#loginPassword");
+const loginError = document.querySelector("#loginError");
+const loginSubmit = document.querySelector(".login-submit");
+const appShell = document.querySelector("#appShell");
+
+let isAuthenticated = false;
+
+async function checkAuth() {
+  try {
+    const res = await fetch("/api/check");
+    if (!res.ok) return false;
+    const data = await res.json();
+    return !!data.authenticated;
+  } catch {
+    return false;
+  }
+}
+
+function showLogin() {
+  isAuthenticated = false;
+  appShell.style.display = "none";
+  recPanel.classList.remove("open");
+  recBackdrop.classList.remove("open");
+  loginOverlay.classList.remove("hidden");
+}
+
+function hideLogin() {
+  isAuthenticated = true;
+  loginOverlay.classList.add("hidden");
+  appShell.style.display = "";
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+
+  const username = loginUsername.value.trim();
+  const password = loginPassword.value;
+
+  if (!username || !password) {
+    loginError.textContent = "请输入账号和密码。";
+    return;
+  }
+
+  loginError.textContent = "";
+  loginSubmit.disabled = true;
+
+  try {
+    const res = await fetch("/api/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username, password })
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      loginError.textContent = data.error || "登录失败，请重试。";
+      return;
+    }
+
+    if (await checkAuth()) {
+      hideLogin();
+      boot();
+    } else {
+      loginError.textContent = "登录验证失败，请重试。";
+    }
+  } catch {
+    loginError.textContent = "网络错误，请检查连接后重试。";
+  } finally {
+    loginSubmit.disabled = false;
+  }
+}
+
+loginForm.addEventListener("submit", handleLogin);
+
+// ---- App -----------------------------------------------------------------
 const messagesEl = document.querySelector("#messages");
 const form = document.querySelector("#chatForm");
 const input = document.querySelector("#messageInput");
@@ -241,21 +321,6 @@ function addStreamingMessage() {
   };
 }
 
-function addThinking() {
-  const message = document.createElement("article");
-  message.className = "message agent thinking-message";
-  message.innerHTML = `
-    <div class="bubble thinking">
-      <span></span>
-      <span></span>
-      <span></span>
-    </div>
-  `;
-  messagesEl.append(message);
-  scrollToBottom();
-  return message;
-}
-
 function scrollToBottom() {
   requestAnimationFrame(() => {
     messagesEl.scrollTo({ top: messagesEl.scrollHeight, behavior: "smooth" });
@@ -268,27 +333,17 @@ function setSending(next) {
   input.disabled = next;
 }
 
-async function requestRecommendation(message) {
-  const response = await fetch("/api/recommend", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ message })
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.error || "推荐服务暂时不可用。");
-  }
-
-  return response.json();
-}
-
 async function requestRecommendationStream(message, handlers) {
   const response = await fetch("/api/recommend/stream", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ message })
   });
+
+  if (response.status === 401) {
+    showLogin();
+    throw new Error("登录已过期，请重新登录。");
+  }
 
   if (!response.ok || !response.body) {
     const error = await response.json().catch(() => ({}));
@@ -337,7 +392,7 @@ function resizeInput() {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const message = input.value.trim();
-  if (!message || isSending) return;
+  if (!message || isSending || !isAuthenticated) return;
 
   addMessage({ role: "user", text: message });
   input.value = "";
@@ -391,4 +446,13 @@ recBackdrop.addEventListener("click", closeRecPanel);
 recToggle.addEventListener("click", toggleRecPanel);
 recClose.addEventListener("click", closeRecPanel);
 
-boot();
+// ---- Init ----------------------------------------------------------------
+async function init() {
+  appShell.style.display = "none";
+  if (await checkAuth()) {
+    hideLogin();
+    boot();
+  }
+}
+
+init();

@@ -5,8 +5,20 @@ import {
   modelConfigFromEnv,
   sseHeaders
 } from "../../../src/recommendation-core.js";
+import { COOKIE_NAME, parseCookies, verifyToken } from "../../../src/auth.js";
 
 export async function onRequestPost({ request, env }) {
+  if (env.AUTH_USERNAME && env.AUTH_PASSWORD) {
+    const cookies = parseCookies(request.headers.get("Cookie") || "");
+    const payload = await verifyToken(cookies[COOKIE_NAME], env.AUTH_SECRET);
+    if (!payload) {
+      return new Response(JSON.stringify({ error: "请先登录。" }), {
+        status: 401,
+        headers: { "content-type": "application/json; charset=utf-8" }
+      });
+    }
+  }
+
   let body = {};
   try {
     body = await request.json();

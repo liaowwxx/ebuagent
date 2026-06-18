@@ -7,7 +7,31 @@
     <link rel="stylesheet" href="/styles.css?v=20260618-markdown" />
   </head>
   <body>
-    <main class="app-shell">
+    <div id="loginOverlay" class="login-overlay">
+      <div class="login-card">
+        <div class="login-brand">
+          <div class="agent-mark" aria-hidden="true">
+            <span></span>
+          </div>
+        </div>
+        <h1>天选铺子</h1>
+        <p class="login-desc">登录后使用智能推荐助手</p>
+        <form id="loginForm" class="login-form">
+          <label class="login-field">
+            <span>账号</span>
+            <input type="text" id="loginUsername" autocomplete="username" placeholder="输入账号" />
+          </label>
+          <label class="login-field">
+            <span>密码</span>
+            <input type="password" id="loginPassword" autocomplete="current-password" placeholder="输入密码" />
+          </label>
+          <p id="loginError" class="login-error"></p>
+          <button type="submit" class="login-submit">登 录</button>
+        </form>
+      </div>
+    </div>
+
+    <main class="app-shell" id="appShell">
       <section class="chat-panel" aria-label="店铺智能推荐对话框">
         <header class="chat-header">
           <div class="agent-mark" aria-hidden="true">
