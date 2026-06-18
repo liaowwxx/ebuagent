@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>店铺智能推荐</title>
+    <link rel="stylesheet" href="/styles.css?v=20260618-markdown" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="chat-panel" aria-label="店铺智能推荐对话框">
+        <header class="chat-header">
+          <div class="agent-mark" aria-hidden="true">
+            <span></span>
+          </div>
+          <div>
+            <p class="eyebrow">智能推荐助手</p>
+            <h1>告诉我你想买什么</h1>
+          </div>
+          <div class="status-pill">
+            <span></span>
+            在线
+          </div>
+        </header>
+
+        <div id="messages" class="messages" aria-live="polite"></div>
+
+        <form id="chatForm" class="composer">
+          <label class="sr-only" for="messageInput">输入你的购物需求</label>
+          <textarea
+            id="messageInput"
+            rows="1"
+            placeholder="例如：想买一份适合送朋友的零食礼盒"
+            autocomplete="off"
+          ></textarea>
+          <button id="sendButton" type="submit" aria-label="发送">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3.7 20.3 21 12 3.7 3.7l2.1 6.5 8.3 1.8-8.3 1.8-2.1 6.5Z" />
+            </svg>
+          </button>
+        </form>
+      </section>
+
+      <aside class="recommendation-panel" aria-label="商品推荐卡片">
+        <div class="recommendation-header">
+          <div>
+            <p class="eyebrow">AI 商品推荐</p>
+            <h2>为你精选</h2>
+          </div>
+          <span id="recommendationMode" class="mode-pill">等待需求</span>
+        </div>
+        <div id="recommendationList" class="recommendation-list">
+          <section class="recommendation-empty">
+            <strong>还没有推荐</strong>
+            <span>发送你的需求后，右侧会由大模型生成商品卡片和二维码。</span>
+          </section>
+        </div>
+      </aside>
+    </main>
+
+    <script type="module" src="/app.js?v=20260618-markdown"></script>
+  </body>
+</html>
