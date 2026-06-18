@@ -89,6 +89,14 @@ textarea {
   background: rgba(255, 255, 255, 0.64);
 }
 
+.rec-handle {
+  display: none;
+}
+
+.rec-close {
+  display: none;
+}
+
 .recommendation-header h2 {
   margin: 0;
   font-size: 24px;
@@ -156,6 +164,14 @@ textarea {
 .recommendation-empty strong {
   color: var(--ink);
   font-size: 18px;
+}
+
+.rec-backdrop {
+  display: none;
+}
+
+.rec-toggle {
+  display: none;
 }
 
 .mini-loader {
@@ -682,7 +698,7 @@ textarea:disabled {
 
   .app-shell {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 1fr) minmax(240px, 38dvh);
+    grid-template-rows: 1fr;
     gap: 0;
     width: 100%;
     height: 100dvh;
@@ -692,23 +708,112 @@ textarea:disabled {
 
   .chat-panel {
     width: 100%;
-    height: auto;
+    height: 100dvh;
     min-height: 0;
     border: 0;
     border-radius: 0;
   }
 
   .recommendation-panel {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 110;
     height: auto;
-    min-height: 0;
-    border-right: 0;
-    border-bottom: 0;
-    border-left: 0;
+    max-height: 62dvh;
+    border: 0;
     border-radius: 22px 22px 0 0;
+    box-shadow: 0 -12px 48px rgba(40, 52, 84, 0.22);
+    transform: translateY(100%);
+    transition: transform 340ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .recommendation-panel.open {
+    transform: translateY(0);
+  }
+
+  .rec-handle {
+    display: block;
+    width: 36px;
+    height: 5px;
+    margin: 0 auto;
+    border-radius: 999px;
+    background: rgba(23, 32, 51, 0.18);
+  }
+
+  .rec-close {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    margin-left: auto;
+    padding: 0;
+    border: 0;
+    border-radius: 10px;
+    color: var(--muted);
+    background: rgba(23, 32, 51, 0.06);
+    cursor: pointer;
+    flex: 0 0 auto;
+  }
+
+  .rec-close svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .rec-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: rgba(23, 32, 51, 0.32);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 340ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .rec-backdrop.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .rec-toggle {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    position: fixed;
+    bottom: 96px;
+    right: 14px;
+    z-index: 90;
+    padding: 10px 16px 10px 12px;
+    border: 1px solid rgba(23, 32, 51, 0.08);
+    border-radius: 999px;
+    color: var(--accent-dark);
+    background: var(--panel-strong);
+    box-shadow: 0 8px 28px rgba(40, 52, 84, 0.16);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 200ms ease, opacity 200ms ease, box-shadow 200ms ease;
+  }
+
+  .rec-toggle:active {
+    transform: scale(0.96);
+  }
+
+  .rec-toggle.has-recs {
+    box-shadow: 0 8px 28px rgba(22, 160, 133, 0.26);
+  }
+
+  .rec-toggle svg {
+    width: 20px;
+    height: 20px;
   }
 
   .recommendation-header {
-    padding: 12px 16px;
+    flex-wrap: wrap;
+    padding: 12px 16px 14px;
   }
 
   .recommendation-header h2 {

@@ -41,12 +41,16 @@
         </form>
       </section>
 
-      <aside class="recommendation-panel" aria-label="商品推荐卡片">
+      <aside class="recommendation-panel" id="recPanel" aria-label="商品推荐卡片">
         <div class="recommendation-header">
+          <div class="rec-handle" aria-hidden="true"></div>
           <div>
             <p class="eyebrow">AI 商品推荐</p>
             <h2>为你精选</h2>
           </div>
+          <button type="button" class="rec-close" aria-label="关闭推荐面板">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
           <span id="recommendationMode" class="mode-pill">等待需求</span>
         </div>
         <div id="recommendationList" class="recommendation-list">
@@ -56,6 +60,11 @@
           </section>
         </div>
       </aside>
+      <div class="rec-backdrop" id="recBackdrop" aria-hidden="true"></div>
+      <button type="button" class="rec-toggle" id="recToggle" aria-label="查看推荐">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="8" rx="1.5" fill="currentColor"/><rect x="14" y="3" width="7" height="8" rx="1.5" fill="currentColor" opacity="0.55"/><rect x="3" y="13" width="7" height="8" rx="1.5" fill="currentColor" opacity="0.55"/><rect x="14" y="13" width="7" height="8" rx="1.5" fill="currentColor" opacity="0.35"/></svg>
+        <span>推荐</span>
+      </button>
     </main>
 
     <script type="module" src="/app.js?v=20260618-markdown"></script>

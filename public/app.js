@@ -4,10 +4,32 @@ const input = document.querySelector("#messageInput");
 const sendButton = document.querySelector("#sendButton");
 const recommendationList = document.querySelector("#recommendationList");
 const recommendationMode = document.querySelector("#recommendationMode");
+const recPanel = document.querySelector("#recPanel");
+const recBackdrop = document.querySelector("#recBackdrop");
+const recToggle = document.querySelector("#recToggle");
+const recClose = document.querySelector(".rec-close");
 
 const starters = ["送礼零食", "榴莲甜品", "聚会红酒", "实惠小吃"];
 
 let isSending = false;
+
+function openRecPanel() {
+  recPanel.classList.add("open");
+  recBackdrop.classList.add("open");
+}
+
+function closeRecPanel() {
+  recPanel.classList.remove("open");
+  recBackdrop.classList.remove("open");
+}
+
+function toggleRecPanel() {
+  if (recPanel.classList.contains("open")) {
+    closeRecPanel();
+  } else {
+    openRecPanel();
+  }
+}
 
 function boot() {
   addMessage({
@@ -126,12 +148,13 @@ function setRecommendationStatus(text, tone = "idle") {
 }
 
 function setRecommendationLoading() {
+  openRecPanel();
   setRecommendationStatus("生成中", "loading");
   recommendationList.innerHTML = `
     <section class="recommendation-empty loading-card">
       <div class="mini-loader" aria-hidden="true"><span></span><span></span><span></span></div>
       <strong>大模型正在挑选商品</strong>
-      <span>商品卡片和二维码会在右侧生成，聊天分析会同时流式输出。</span>
+      <span>商品卡片和二维码会在下方生成，聊天分析会同时流式输出。</span>
     </section>
   `;
 }
@@ -139,6 +162,7 @@ function setRecommendationLoading() {
 function renderRecommendations(recommendations) {
   if (!recommendations.length) {
     setRecommendationStatus("暂无推荐", "idle");
+    recToggle.classList.remove("has-recs");
     recommendationList.innerHTML = `
       <section class="recommendation-empty">
         <strong>暂时没有匹配商品</strong>
@@ -148,6 +172,8 @@ function renderRecommendations(recommendations) {
     return;
   }
 
+  openRecPanel();
+  recToggle.classList.add("has-recs");
   setRecommendationStatus("已生成", "ready");
   recommendationList.innerHTML = "";
   recommendations.forEach((product, index) => {
@@ -360,5 +386,9 @@ input.addEventListener("keydown", (event) => {
     form.requestSubmit();
   }
 });
+
+recBackdrop.addEventListener("click", closeRecPanel);
+recToggle.addEventListener("click", toggleRecPanel);
+recClose.addEventListener("click", closeRecPanel);
 
 boot();
