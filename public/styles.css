@@ -444,12 +444,13 @@ h1 {
 
 .qr-wrap {
   display: grid;
-  grid-template-rows: 1fr auto;
   gap: 8px;
+  place-content: center;
   place-items: center;
   min-width: 0;
-  padding: 10px;
-  border-radius: 16px;
+  padding: 12px;
+  border: 1px solid rgba(23, 32, 51, 0.06);
+  border-radius: 14px;
   background: #f7faf9;
   animation: qrFade 600ms ease both;
 }
@@ -458,7 +459,7 @@ h1 {
 .qr-empty {
   width: 104px;
   height: 104px;
-  border-radius: 12px;
+  border-radius: 10px;
 }
 
 .qr-wrap img {
@@ -725,8 +726,8 @@ textarea:disabled {
 
   .recommendation-list .product-card,
   .recommendation-empty {
-    width: min(330px, calc(100vw - 42px));
-    flex: 0 0 min(330px, calc(100vw - 42px));
+    width: min(370px, calc(100vw - 32px));
+    flex: 0 0 min(370px, calc(100vw - 32px));
     scroll-snap-align: start;
   }
 
@@ -770,25 +771,28 @@ textarea:disabled {
   }
 
   .product-card {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
     padding: 13px;
     border-radius: 18px;
   }
 
   .qr-wrap {
-    grid-template-columns: 96px 1fr;
-    grid-template-rows: auto;
-    justify-items: start;
+    grid-template-columns: auto;
+    place-content: center;
+    justify-items: center;
+    gap: 6px;
   }
 
   .qr-wrap img,
   .qr-empty {
-    width: 96px;
-    height: 96px;
+    width: 84px;
+    height: 84px;
+    border-radius: 10px;
   }
 
   .qr-wrap span {
-    font-size: 13px;
+    display: none;
   }
 
   .composer {
