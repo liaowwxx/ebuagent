@@ -1,3 +1,6 @@
 name = "shop-agent"
 compatibility_date = "2026-06-18"
 pages_build_output_dir = "public"
+[[kv_namespaces]]
+binding = "CHAT_LOGS"
+id = "df7737dbd0164252bb2a745154d13ff0"
