@@ -90,8 +90,29 @@ const recToggle = document.querySelector("#recToggle");
 const recClose = document.querySelector(".rec-close");
 
 const starters = ["送礼零食", "榴莲甜品", "聚会红酒", "实惠小吃"];
+const privacyText = "数据隐私声明：您的聊天可能会被记录；聊天数据仅用于课程学习、服务优化等类似用途。";
 
 let isSending = false;
+let privacyNoticeShown = false;
+
+function fallbackId() {
+  return `session_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getSessionId() {
+  const key = "shopAgentSessionId";
+  try {
+    const existing = localStorage.getItem(key);
+    if (existing) return existing;
+    const created = globalThis.crypto?.randomUUID?.() || fallbackId();
+    localStorage.setItem(key, created);
+    return created;
+  } catch {
+    return fallbackId();
+  }
+}
+
+const sessionId = getSessionId();
 
 function openRecPanel() {
   recPanel.classList.add("open");
@@ -112,6 +133,7 @@ function toggleRecPanel() {
 }
 
 function boot() {
+  showPrivacyNotice();
   addMessage({
     role: "agent",
     text: "你好，我是店铺智能推荐助手。告诉我你的预算、口味或使用场景，我会直接给你挑具体商品和扫码入口。",
@@ -220,6 +242,16 @@ function addMessage({ role, text, recommendations = [], chips = [] }) {
   messagesEl.append(message);
   scrollToBottom();
   return message;
+}
+
+function showPrivacyNotice() {
+  if (privacyNoticeShown) return;
+  privacyNoticeShown = true;
+
+  const notice = document.createElement("section");
+  notice.className = "privacy-banner";
+  notice.textContent = privacyText;
+  messagesEl.append(notice);
 }
 
 function setRecommendationStatus(text, tone = "idle") {
@@ -337,7 +369,7 @@ async function requestRecommendationStream(message, handlers) {
   const response = await fetch("/api/recommend/stream", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ message })
+    body: JSON.stringify({ message, sessionId })
   });
 
   if (response.status === 401) {

@@ -3,6 +3,29 @@ function writeSseChunk(controller, encoder, event, payload) {
   controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
 }
 
+function compactLoggedRecommendation(product) {
+  return {
+    productId: product.productId,
+    name: product.name,
+    brand: product.brand,
+    category1: product.category1,
+    category2: product.category2,
+    category3: product.category3,
+    priceMin: product.priceMin,
+    priceMax: product.priceMax,
+    specs: (product.specs || []).map((spec) => spec.value).filter(Boolean),
+    hasQrCode: product.hasQrCode,
+    qrCodePath: product.qrCodePath,
+    reason: product.reason,
+    angle: product.angle,
+    scanPrompt: product.scanPrompt
+  };
+}
+
+function fallbackId() {
+  return `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function normalizeText(value) {
   return String(value || "")
     .toLowerCase()
@@ -304,13 +327,44 @@ async function streamModelAnalysis(config, emit, message, plan, recommendations)
   }
 }
 
-export async function createRecommendationStream({ message, products, config }) {
+export async function createRecommendationStream({ message, products, config, logContext = {}, onLog }) {
   const encoder = new TextEncoder();
   const candidates = localCandidates(products, message, 18);
 
   return new ReadableStream({
     async start(controller) {
-      const emit = (event, payload) => writeSseChunk(controller, encoder, event, payload);
+      const startedAt = new Date();
+      const logEntry = {
+        schemaVersion: 1,
+        requestId: logContext.requestId || globalThis.crypto?.randomUUID?.() || fallbackId(),
+        sessionId: logContext.sessionId || "unknown",
+        startedAt: startedAt.toISOString(),
+        endedAt: null,
+        durationMs: null,
+        status: "started",
+        mode: null,
+        user: logContext.user || null,
+        client: logContext.client || {},
+        dialogue: {
+          userMessage: message,
+          aiMessage: ""
+        },
+        recommendations: [],
+        error: null
+      };
+
+      const emit = (event, payload) => {
+        if (event === "meta") logEntry.mode = payload?.mode || null;
+        if (event === "recommendations") {
+          logEntry.recommendations = (payload?.recommendations || []).map(compactLoggedRecommendation);
+        }
+        if (event === "token") logEntry.dialogue.aiMessage += payload?.text || "";
+        if (event === "error") {
+          logEntry.status = "error";
+          logEntry.error = payload?.error || "推荐服务暂时不可用。";
+        }
+        writeSseChunk(controller, encoder, event, payload);
+      };
 
       try {
         let plan = null;
@@ -334,9 +388,19 @@ export async function createRecommendationStream({ message, products, config }) 
         }
 
         emit("done", { ok: true });
+        logEntry.status = "completed";
       } catch (error) {
         emit("error", { error: error.message || "推荐服务暂时不可用。" });
       } finally {
+        logEntry.endedAt = new Date().toISOString();
+        logEntry.durationMs = Date.parse(logEntry.endedAt) - startedAt.getTime();
+        if (onLog) {
+          try {
+            await onLog(logEntry);
+          } catch (error) {
+            console.warn(`Chat log write failed: ${error.message}`);
+          }
+        }
         controller.close();
       }
     }

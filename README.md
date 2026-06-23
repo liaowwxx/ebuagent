@@ -40,6 +40,26 @@ OPENAI_MODEL=
 
 前端使用 `/api/recommend/stream` 接收 SSE 流式输出；后端会先让大模型从候选商品里选择右侧推荐卡片，再让聊天区基于这些结果流式撰写中性、事实导向的推荐说明。
 
+## 对话记录与隐私声明
+
+页面会在登录页和聊天区开始位置展示数据隐私声明：用户聊天可能会被记录，聊天数据仅用于课程学习、服务优化等类似用途。
+
+本地 `npm start` 运行时，每轮用户提问和 AI 回复会自动追加保存到：
+
+```text
+logs/chat-conversations.jsonl
+```
+
+每一行是一条 JSON 记录，包含请求 ID、浏览器会话 ID、开始/结束时间、耗时、登录用户名（如已启用鉴权）、客户端信息、用户消息、AI 回复、推荐商品明细、推荐模式和错误信息等。`logs/` 已加入 `.gitignore`，避免误提交真实聊天数据。
+
+Cloudflare Pages 运行时不能稳定写本地文件。如果需要线上持久化保存对话，请创建 KV Namespace 并绑定变量名：
+
+```text
+CHAT_LOGS
+```
+
+绑定后，每轮对话会以 `chat/YYYY-MM-DD/sessionId/requestId.json` 的 key 写入 KV；未绑定时会退回输出到 Cloudflare Functions 日志。
+
 ## 更新商品数据
 
 当 `商品.xlsx` 或 `mini_qrcode_export/` 更新后，重新生成商品知识库：

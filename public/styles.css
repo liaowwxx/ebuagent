@@ -296,6 +296,19 @@ h1 {
   justify-content: flex-end;
 }
 
+.privacy-banner {
+  align-self: center;
+  max-width: 760px;
+  padding: 10px 14px;
+  border: 1px solid rgba(22, 160, 133, 0.16);
+  border-radius: 14px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.66);
+  font-size: 13px;
+  line-height: 1.55;
+  text-align: center;
+}
+
 .bubble {
   max-width: min(760px, 88%);
   padding: 16px 18px;
@@ -650,9 +663,21 @@ textarea:disabled {
 }
 
 .login-desc {
-  margin: 0 0 28px;
+  margin: 0 0 14px;
   color: var(--muted);
   font-size: 15px;
+}
+
+.privacy-note {
+  margin: 0 0 24px;
+  padding: 10px 12px;
+  border: 1px solid rgba(22, 160, 133, 0.16);
+  border-radius: 14px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.62);
+  font-size: 12px;
+  line-height: 1.55;
+  text-align: left;
 }
 
 .login-form {

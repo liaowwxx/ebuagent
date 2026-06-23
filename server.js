@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { readFile, stat } from "node:fs/promises";
+import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import crypto from "node:crypto";
 import path from "node:path";
@@ -19,6 +19,8 @@ const PORT = Number(process.env.PORT || 4173);
 const PUBLIC_DIR = path.join(__dirname, "public");
 const QR_SOURCE_DIR = path.join(__dirname, "mini_qrcode_export");
 const PRODUCTS_PATH = path.join(PUBLIC_DIR, "data", "products.json");
+const LOG_DIR = path.join(__dirname, "logs");
+const CHAT_LOG_PATH = path.join(LOG_DIR, "chat-conversations.jsonl");
 const products = JSON.parse(await readFile(PRODUCTS_PATH, "utf8"));
 
 const mimeTypes = {
@@ -84,9 +86,26 @@ async function pipeWebStreamToNode(webStream, res) {
   res.end();
 }
 
-async function handleRecommendStream(req, res) {
+function requestClientContext(req) {
+  return {
+    ip:
+      req.headers["cf-connecting-ip"] ||
+      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+      req.socket.remoteAddress ||
+      "unknown",
+    userAgent: req.headers["user-agent"] || "",
+    referer: req.headers.referer || ""
+  };
+}
+
+async function appendChatLog(entry) {
+  await mkdir(LOG_DIR, { recursive: true });
+  await appendFile(CHAT_LOG_PATH, `${JSON.stringify(entry)}\n`, "utf8");
+}
+
+async function handleRecommendStream(req, res, user = null) {
   try {
-    const { message } = await readBody(req);
+    const { message, sessionId } = await readBody(req);
     if (!String(message || "").trim()) {
       sendJson(res, 400, { error: "请输入你的需求。" });
       return;
@@ -96,7 +115,14 @@ async function handleRecommendStream(req, res) {
     const stream = await createRecommendationStream({
       message,
       products,
-      config: modelConfigFromEnv(process.env)
+      config: modelConfigFromEnv(process.env),
+      logContext: {
+        requestId: crypto.randomUUID(),
+        sessionId: String(sessionId || "").trim().slice(0, 80) || "unknown",
+        user,
+        client: requestClientContext(req)
+      },
+      onLog: appendChatLog
     });
     await pipeWebStreamToNode(stream, res);
   } catch (error) {
@@ -252,11 +278,15 @@ function handleCheck(req, res) {
   sendJson(res, 200, { authenticated: true, username: payload.username });
 }
 
+function getAuthPayload(req) {
+  if (!AUTH_ENABLED) return null;
+  const cookies = parseCookieHeader(req.headers.cookie);
+  return verifyTokenNode(cookies[COOKIE_NAME], process.env.AUTH_SECRET);
+}
+
 function authGuard(req, res) {
   if (!AUTH_ENABLED) return true;
-  const cookies = parseCookieHeader(req.headers.cookie);
-  const payload = verifyTokenNode(cookies[COOKIE_NAME], process.env.AUTH_SECRET);
-  if (!payload) {
+  if (!getAuthPayload(req)) {
     sendJson(res, 401, { error: "请先登录。" });
     return false;
   }
@@ -280,7 +310,8 @@ const server = createServer(async (req, res) => {
 
   if (req.method === "POST" && url.pathname === "/api/recommend/stream") {
     if (!authGuard(req, res)) return;
-    await handleRecommendStream(req, res);
+    const payload = getAuthPayload(req);
+    await handleRecommendStream(req, res, payload ? { username: payload.username || "" } : null);
     return;
   }
 
