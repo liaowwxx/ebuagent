@@ -319,6 +319,17 @@ function renderRecommendations(recommendations) {
   });
 }
 
+function renderNoMatchRecommendationState() {
+  setRecommendationStatus("暂无匹配", "idle");
+  recToggle.classList.remove("has-recs");
+  recommendationList.innerHTML = `
+    <section class="recommendation-empty">
+      <strong>商品库暂无匹配</strong>
+      <span>可以从店内现有类目里重新选择，再让我生成商品卡片。</span>
+    </section>
+  `;
+}
+
 function addStreamingMessage() {
   const message = document.createElement("article");
   message.className = "message agent streaming-message";
@@ -461,6 +472,8 @@ form.addEventListener("submit", async (event) => {
           }
         } else if (data.mode === "llm") {
           setRecommendationStatus("AI 推荐", "ready");
+        } else if (data.mode === "no_match") {
+          renderNoMatchRecommendationState();
         } else if (data.mode === "chat") {
           setRecommendationStatus("仅聊天", "idle");
         } else {

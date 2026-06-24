@@ -121,6 +121,49 @@ function priceIntent(message) {
   return { type: "neutral", max };
 }
 
+const COVERAGE_STOP_TOKENS = new Set([
+  "推荐",
+  "商品",
+  "东西",
+  "一些",
+  "一点",
+  "几个",
+  "几款",
+  "一款",
+  "两款",
+  "三款",
+  "帮我",
+  "给我",
+  "看看",
+  "有没有",
+  "有没",
+  "可以",
+  "适合",
+  "预算",
+  "左右",
+  "以内",
+  "不超过",
+  "便宜",
+  "实惠",
+  "划算",
+  "高端",
+  "品质",
+  "送人",
+  "朋友",
+  "扫码",
+  "入口",
+  "详情"
+]);
+
+const COVERAGE_SINGLE_CHAR_TOKENS = new Set(["酒", "茶", "肉", "粽", "面"]);
+
+function isCoverageToken(token) {
+  if (!token || COVERAGE_STOP_TOKENS.has(token)) return false;
+  if (/^\d+(?:\.\d+)?$/.test(token)) return false;
+  if (token.length === 1) return COVERAGE_SINGLE_CHAR_TOKENS.has(token);
+  return token.length >= 2;
+}
+
 function productFields(product) {
   return [
     { key: "category3", value: product.category3, weight: 16 },
@@ -142,6 +185,47 @@ function tokenScore(token, fieldText, fieldWeight) {
   if (token.length === 1) return fieldWeight * 0.45;
   if (token.length === 2) return fieldWeight * 0.8;
   return fieldWeight;
+}
+
+function coverageFields(product) {
+  return [
+    { key: "category3", value: product.category3, weight: 18 },
+    { key: "category2", value: product.category2, weight: 16 },
+    { key: "name", value: product.name, weight: 12 },
+    { key: "brand", value: product.brand, weight: 9 },
+    { key: "category1", value: product.category1, weight: 7 },
+    {
+      key: "specs",
+      value: (product.specs || []).map((spec) => spec.value).filter(Boolean).join(" "),
+      weight: 4
+    }
+  ];
+}
+
+function productCoverageScore(product, tokens) {
+  let score = 0;
+  const matchedFields = new Set();
+  const coverageTokens = tokens.filter(isCoverageToken);
+
+  for (const field of coverageFields(product)) {
+    const fieldText = normalizeText(field.value);
+    if (!fieldText) continue;
+
+    for (const token of coverageTokens) {
+      const added = tokenScore(token, fieldText, field.weight);
+      if (added > 0) {
+        score += added;
+        matchedFields.add(field.key);
+      }
+    }
+  }
+
+  if (matchedFields.has("category3")) score += 12;
+  if (matchedFields.has("category2")) score += 10;
+  if (matchedFields.has("name")) score += 8;
+  if (matchedFields.has("brand")) score += 5;
+
+  return score;
 }
 
 function productTextScore(product, tokens) {
@@ -198,6 +282,7 @@ function localCandidateEntries(products, message, limit = 18) {
   return products
     .map((product) => {
       const textScore = productTextScore(product, tokens);
+      const coverageScore = productCoverageScore(product, tokens);
       let affinityScore = 0;
 
       for (const category of [product.category1, product.category2, product.category3].filter(Boolean)) {
@@ -218,7 +303,7 @@ function localCandidateEntries(products, message, limit = 18) {
       const relevanceScore = textScore + affinityScore + occasionScore + priceScore;
       const score = (product.hasQrCode ? 8 : -20) + relevanceScore;
 
-      return { product, score, relevanceScore };
+      return { product, score, relevanceScore, coverageScore };
     })
     .sort((a, b) => b.score - a.score || a.product.priceMin - b.product.priceMin)
     .slice(0, limit);
@@ -226,6 +311,63 @@ function localCandidateEntries(products, message, limit = 18) {
 
 function localCandidates(products, message, limit = 18) {
   return localCandidateEntries(products, message, limit).map(({ product }) => product);
+}
+
+function buildCatalogSummary(products) {
+  const grouped = new Map();
+
+  for (const product of products) {
+    const category1 = product.category1 || "未分类";
+    const category2 = product.category2 || "未分类";
+    const category3 = product.category3 || "";
+
+    if (!grouped.has(category1)) grouped.set(category1, new Map());
+    const secondLevel = grouped.get(category1);
+    if (!secondLevel.has(category2)) secondLevel.set(category2, new Set());
+    if (category3) secondLevel.get(category2).add(category3);
+  }
+
+  return [...grouped.entries()]
+    .slice(0, 8)
+    .map(([category1, secondLevel]) => {
+      const secondText = [...secondLevel.entries()]
+        .slice(0, 10)
+        .map(([category2, thirdLevel]) => {
+          const thirdText = [...thirdLevel].slice(0, 8).join("、");
+          return thirdText ? `${category2}（${thirdText}）` : category2;
+        })
+        .join("；");
+      return `${category1}：${secondText}`;
+    })
+    .join("\n");
+}
+
+function availableCategoryList(products) {
+  return [
+    ...new Set(
+      products
+        .map((product) => product.category2 || product.category1 || product.category3)
+        .filter(Boolean)
+    )
+  ].slice(0, 8);
+}
+
+function evaluateCatalogCoverage(products, query, candidateEntries = localCandidateEntries(products, query, 18)) {
+  const coveredEntries = candidateEntries.filter((entry) => entry.coverageScore >= 12);
+  const topEntry = candidateEntries[0] || null;
+  return {
+    matched: coveredEntries.length > 0,
+    query,
+    topCoverageScore: topEntry?.coverageScore || 0,
+    matchedCount: coveredEntries.length,
+    availableCategories: availableCategoryList(products),
+    candidateEntries: coveredEntries.length ? coveredEntries : []
+  };
+}
+
+function noCatalogMatchText(match) {
+  const categories = match.availableCategories.join("、");
+  return `目前商品库里没有和「${match.query}」明确匹配的商品，所以不能直接推荐对应商品卡片。店内当前主要有${categories}等类目；如果你愿意，可以从这些类目里选一个，我再帮你挑。`;
 }
 
 function formatPrice(min, max) {
@@ -461,6 +603,7 @@ async function llmRecommendationPlan(config, message, candidates) {
     throw new Error("Model recommendation response is not valid JSON.");
   }
 
+  const candidateIds = new Set(candidates.map((candidate) => String(candidate.productId)));
   const valid = parsed.recommendations
     .map((item) => ({
       productId: String(item.productId),
@@ -468,6 +611,7 @@ async function llmRecommendationPlan(config, message, candidates) {
       angle: String(item.angle || "").slice(0, 40),
       scanPrompt: String(item.scanPrompt || "扫码查看商品详情").slice(0, 60)
     }))
+    .filter((item) => candidateIds.has(item.productId))
     .slice(0, 3);
 
   if (!valid.length) return null;
@@ -571,7 +715,7 @@ async function streamModelAnalysis(config, emit, message, plan, recommendations)
   if (tail) emit("token", { text: tail });
 }
 
-async function streamAssistantTurn({ config, emit, message, history }) {
+async function streamAssistantTurn({ config, emit, message, history, products }) {
   const { apiKey, baseUrl, model } = config;
   if (!apiKey) {
     emit("meta", { mode: "chat" });
@@ -581,7 +725,10 @@ async function streamAssistantTurn({ config, emit, message, history }) {
 
   const system = [
     "你是一个中文店铺导购智能体，可以进行连续上下文对话。",
+    "当前商品库类目概览如下：",
+    buildCatalogSummary(products),
     "只有当用户明确要求你推荐、挑选、比较具体商品，或需要商品卡片、扫码入口时，才调用 recommend_products 工具。",
+    "如果用户要的品类明显不在商品库类目概览中，不要调用工具；直接说明当前商品库没有该品类，并询问是否愿意看现有类目。",
     "如果用户只是寒暄、提问、补充偏好、询问流程、修改条件但还没要求你推荐，就只在聊天窗口自然回复，不要调用工具。",
     "需要推荐但信息明显不足时，先在聊天窗口追问关键条件，不要急着调用工具。",
     "不要输出思考过程、推理过程、<think> 标签或任何隐藏推理内容。"
@@ -670,6 +817,7 @@ export async function createRecommendationStream({ message, history = [], produc
         client: logContext.client || {},
         conversation,
         toolCall: null,
+        inventoryMatch: null,
         recommendationRequest: null,
         recommendations: [],
         error: null,
@@ -699,14 +847,12 @@ export async function createRecommendationStream({ message, history = [], produc
       };
 
       try {
-        const { toolCall } = await streamAssistantTurn({ config, emit, message, history });
+        const { toolCall } = await streamAssistantTurn({ config, emit, message, history, products });
         if (!toolCall) {
           emit("done", { ok: true });
           logEntry.status = "completed";
           return;
         }
-
-        emit("meta", { mode: "selecting" });
 
         const toolArgs = parseToolArguments(toolCall.function.arguments);
         const recommendationNeed = String(toolArgs.query || message).trim() || message;
@@ -721,7 +867,26 @@ export async function createRecommendationStream({ message, history = [], produc
           count: recommendationCount
         };
         const candidateEntries = localCandidateEntries(products, recommendationNeed, 18);
-        const scopedCandidateEntries = candidateEntries.slice(0, Math.max(6, recommendationCount * 6));
+        const inventoryMatch = evaluateCatalogCoverage(products, recommendationNeed, candidateEntries);
+        logEntry.inventoryMatch = {
+          matched: inventoryMatch.matched,
+          query: inventoryMatch.query,
+          topCoverageScore: inventoryMatch.topCoverageScore,
+          matchedCount: inventoryMatch.matchedCount,
+          availableCategories: inventoryMatch.availableCategories
+        };
+
+        if (!inventoryMatch.matched) {
+          emit("meta", { mode: "no_match" });
+          emit("token", { text: noCatalogMatchText(inventoryMatch) });
+          emit("done", { ok: true });
+          logEntry.status = "completed";
+          return;
+        }
+
+        emit("meta", { mode: "selecting" });
+
+        const scopedCandidateEntries = inventoryMatch.candidateEntries.slice(0, Math.max(6, recommendationCount * 6));
         const scopedCandidates = scopedCandidateEntries.map(({ product }) => product);
         let plan = null;
         try {
