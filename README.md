@@ -65,7 +65,22 @@ OPENAI_DISABLE_THINKING=false
 logs/chat-conversations.jsonl
 ```
 
-每一行是一条 JSON 记录，包含请求 ID、浏览器会话 ID、开始/结束时间、耗时、登录用户名（如已启用鉴权）、客户端信息、用户消息、AI 回复、推荐商品明细、推荐模式和错误信息等。`logs/` 已加入 `.gitignore`，避免误提交真实聊天数据。
+每一行是一条 JSON 记录。当前日志结构为 `schemaVersion: 2`，包含请求 ID、浏览器会话 ID、开始/结束时间、耗时、登录用户名（如已启用鉴权）、客户端信息、推荐模式、工具调用、推荐请求、推荐商品明细和错误信息等。连续对话内容保存在 `conversation` 字段：
+
+```json
+{
+  "conversation": {
+    "history": [{ "role": "user", "content": "上一轮用户消息" }],
+    "currentTurn": {
+      "user": { "role": "user", "content": "本轮用户消息" },
+      "assistant": { "role": "assistant", "content": "本轮 AI 回复" }
+    },
+    "messages": []
+  }
+}
+```
+
+其中 `messages` 会在本轮结束时写入完整上下文快照：历史消息 + 本轮用户消息 + 本轮 AI 回复。旧的 `dialogue` 字段暂时保留，用于兼容已有日志读取方式。`logs/` 已加入 `.gitignore`，避免误提交真实聊天数据。
 
 Cloudflare Pages 运行时不能稳定写本地文件。如果需要线上持久化保存对话，请创建 KV Namespace 并绑定变量名：
 
@@ -73,7 +88,7 @@ Cloudflare Pages 运行时不能稳定写本地文件。如果需要线上持久
 CHAT_LOGS
 ```
 
-绑定后，每轮对话会以 `chat/YYYY-MM-DD/sessionId/requestId.json` 的 key 写入 KV；未绑定时会退回输出到 Cloudflare Functions 日志。
+绑定后，每轮对话会以 `chat/YYYY-MM-DD/sessionId/requestId.json` 的 key 写入 KV；KV metadata 会包含 `schemaVersion`、`sessionId`、`status`、`mode`、`hasRecommendations` 和 `startedAt`。未绑定时会退回输出到 Cloudflare Functions 日志。
 
 ## 更新商品数据
 

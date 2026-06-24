@@ -326,6 +326,31 @@ function appendToolCallDelta(toolCalls, deltaToolCalls = []) {
   }
 }
 
+function buildLogConversation(history, message) {
+  const normalizedHistory = normalizeHistory(history);
+  return {
+    history: normalizedHistory,
+    currentTurn: {
+      user: { role: "user", content: message },
+      assistant: { role: "assistant", content: "" }
+    },
+    messages: [...normalizedHistory, { role: "user", content: message }]
+  };
+}
+
+function finalizeLogConversation(conversation) {
+  const messages = [
+    ...conversation.history,
+    conversation.currentTurn.user
+  ];
+
+  if (conversation.currentTurn.assistant.content) {
+    messages.push(conversation.currentTurn.assistant);
+  }
+
+  conversation.messages = messages;
+}
+
 function buildLocalReason(product, message) {
   const text = String(message || "");
   if (/送|礼|伴手礼|年货|端午/.test(text)) {
@@ -631,8 +656,9 @@ export async function createRecommendationStream({ message, history = [], produc
   return new ReadableStream({
     async start(controller) {
       const startedAt = new Date();
+      const conversation = buildLogConversation(history, message);
       const logEntry = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         requestId: logContext.requestId || globalThis.crypto?.randomUUID?.() || fallbackId(),
         sessionId: logContext.sessionId || "unknown",
         startedAt: startedAt.toISOString(),
@@ -642,13 +668,17 @@ export async function createRecommendationStream({ message, history = [], produc
         mode: null,
         user: logContext.user || null,
         client: logContext.client || {},
+        conversation,
+        toolCall: null,
+        recommendationRequest: null,
+        recommendations: [],
+        error: null,
+        // Legacy shape retained so existing local/KV readers do not break immediately.
         dialogue: {
           userMessage: message,
-          history: normalizeHistory(history),
+          history: conversation.history,
           aiMessage: ""
-        },
-        recommendations: [],
-        error: null
+        }
       };
 
       const emit = (event, payload) => {
@@ -656,7 +686,11 @@ export async function createRecommendationStream({ message, history = [], produc
         if (event === "recommendations") {
           logEntry.recommendations = (payload?.recommendations || []).map(compactLoggedRecommendation);
         }
-        if (event === "token") logEntry.dialogue.aiMessage += payload?.text || "";
+        if (event === "token") {
+          const text = payload?.text || "";
+          logEntry.dialogue.aiMessage += text;
+          logEntry.conversation.currentTurn.assistant.content += text;
+        }
         if (event === "error") {
           logEntry.status = "error";
           logEntry.error = payload?.error || "推荐服务暂时不可用。";
@@ -677,6 +711,15 @@ export async function createRecommendationStream({ message, history = [], produc
         const toolArgs = parseToolArguments(toolCall.function.arguments);
         const recommendationNeed = String(toolArgs.query || message).trim() || message;
         const recommendationCount = Math.max(1, Math.min(3, Number(toolArgs.count || 3)));
+        logEntry.toolCall = {
+          id: toolCall.id || "",
+          name: toolCall.function.name,
+          arguments: toolArgs
+        };
+        logEntry.recommendationRequest = {
+          query: recommendationNeed,
+          count: recommendationCount
+        };
         const candidateEntries = localCandidateEntries(products, recommendationNeed, 18);
         const scopedCandidateEntries = candidateEntries.slice(0, Math.max(6, recommendationCount * 6));
         const scopedCandidates = scopedCandidateEntries.map(({ product }) => product);
@@ -709,6 +752,7 @@ export async function createRecommendationStream({ message, history = [], produc
       } finally {
         logEntry.endedAt = new Date().toISOString();
         logEntry.durationMs = Date.parse(logEntry.endedAt) - startedAt.getTime();
+        finalizeLogConversation(logEntry.conversation);
         if (onLog) {
           try {
             await onLog(logEntry);

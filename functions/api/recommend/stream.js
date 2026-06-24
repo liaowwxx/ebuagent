@@ -31,9 +31,11 @@ async function saveChatLog(env, entry) {
     const key = `chat/${day}/${entry.sessionId}/${entry.requestId}.json`;
     await env.CHAT_LOGS.put(key, JSON.stringify(entry, null, 2), {
       metadata: {
+        schemaVersion: String(entry.schemaVersion || 1),
         sessionId: entry.sessionId,
         status: entry.status,
         mode: entry.mode || "unknown",
+        hasRecommendations: String((entry.recommendations || []).length > 0),
         startedAt: entry.startedAt
       }
     });
