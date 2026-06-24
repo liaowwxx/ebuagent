@@ -36,9 +36,24 @@ OPENAI_BASE_URL=
 OPENAI_MODEL=
 ```
 
-没有配置 `OPENAI_API_KEY` 时，会自动使用本地规则推荐，仍然能返回商品和二维码。
+没有配置 `OPENAI_API_KEY` 时，后端不会自动生成商品卡片，只会在主聊天窗口提示需要配置模型服务。
 
-前端使用 `/api/recommend/stream` 接收 SSE 流式输出；后端会先让大模型从候选商品里选择右侧推荐卡片，再让聊天区基于这些结果流式撰写中性、事实导向的推荐说明。
+前端使用 `/api/recommend/stream` 接收 SSE 流式输出，并会携带最近几轮连续对话上下文。后端先让大模型正常聊天，并提供 `recommend_products` 工具；只有模型主动调用该工具时，后端才会从候选商品中生成右侧推荐卡片和二维码。普通聊天、追问澄清或解释流程时只在主聊天窗口回复。
+
+默认会向非 OpenAI 官方兼容接口发送禁用思考参数：
+
+```json
+{
+  "enable_thinking": false,
+  "thinking": { "type": "disabled" }
+}
+```
+
+如果你的模型服务不接受这些参数，可以设置：
+
+```bash
+OPENAI_DISABLE_THINKING=false
+```
 
 ## 对话记录与隐私声明
 

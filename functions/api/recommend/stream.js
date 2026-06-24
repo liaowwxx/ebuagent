@@ -67,11 +67,13 @@ export async function onRequestPost({ request, env }) {
   const message = String(body.message || "").trim();
   if (!message) return badRequest("请输入你的需求。");
 
+  const history = Array.isArray(body.history) ? body.history : [];
   const sessionId = String(body.sessionId || "").trim().slice(0, 80) || "unknown";
   const requestId = globalThis.crypto?.randomUUID?.() || fallbackId();
 
   const stream = await createRecommendationStream({
     message,
+    history,
     products,
     config: modelConfigFromEnv(env),
     logContext: {

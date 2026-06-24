@@ -105,7 +105,7 @@ async function appendChatLog(entry) {
 
 async function handleRecommendStream(req, res, user = null) {
   try {
-    const { message, sessionId } = await readBody(req);
+    const { message, sessionId, history } = await readBody(req);
     if (!String(message || "").trim()) {
       sendJson(res, 400, { error: "请输入你的需求。" });
       return;
@@ -114,6 +114,7 @@ async function handleRecommendStream(req, res, user = null) {
     res.writeHead(200, sseHeaders());
     const stream = await createRecommendationStream({
       message,
+      history: Array.isArray(history) ? history : [],
       products,
       config: modelConfigFromEnv(process.env),
       logContext: {
