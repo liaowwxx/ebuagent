@@ -370,6 +370,179 @@ function noCatalogMatchText(match) {
   return `目前商品库里没有和「${match.query}」明确匹配的商品，所以不能直接推荐对应商品卡片。店内当前主要有${categories}等类目；如果你愿意，可以从这些类目里选一个，我再帮你挑。`;
 }
 
+function catalogOverviewText(products) {
+  return `当前商品库主要有这些类目：\n\n${buildCatalogSummary(products)}\n\n你可以告诉我预算、用途或想看的类目，我会先查商品库，再生成对应商品卡片。`;
+}
+
+function isCatalogOverviewRequest(message) {
+  const text = String(message || "");
+  return /有哪些|有什么|都有什么|卖什么|商品库|品类|类目|经营范围|商品范围/.test(text);
+}
+
+function hasProductIntent(text) {
+  return /推荐|有没有|有吗|有么|有售|卖|买|想要|想买|想找|挑|选|商品|价格|多少钱|预算|扫码|二维码|礼盒|零食|小吃|酒|红酒|葡萄酒|水果|榴莲|耳机|牛排|面|粽|茶|巧克力|坚果|冰淇淋|甜品|生鲜|冻品|饰品|手链|礼物|送礼/.test(
+    String(text || "")
+  );
+}
+
+function isCatalogFollowUp(message) {
+  return /^(那|就|再|帮我|给我|可以|行|好|嗯|恩)?\s*(推荐|挑|选|来|看看|看下|换|两款|三款|几款|一个|两个|三个|这类|这种)/.test(
+    String(message || "").trim()
+  );
+}
+
+function shouldForceCatalogLookup(message, history) {
+  if (isCatalogOverviewRequest(message)) return false;
+  if (hasProductIntent(message)) return true;
+
+  const normalizedHistory = normalizeHistory(history);
+  const recentUserMessages = normalizedHistory
+    .filter((item) => item.role === "user")
+    .slice(-3)
+    .map((item) => item.content)
+    .join(" ");
+
+  return isCatalogFollowUp(message) && hasProductIntent(recentUserMessages);
+}
+
+function requestedRecommendationCount(message) {
+  const text = String(message || "");
+  if (/一款|一个|1\s*款?/.test(text)) return 1;
+  if (/两款|二款|两个|2\s*款?/.test(text)) return 2;
+  if (/三款|三个|3\s*款?/.test(text)) return 3;
+  return 3;
+}
+
+function buildForcedCatalogQuery(message, history) {
+  const recentUserMessages = normalizeHistory(history)
+    .filter((item) => item.role === "user" && hasProductIntent(item.content))
+    .slice(-3)
+    .map((item) => item.content);
+
+  return [...recentUserMessages, message].join("；").trim() || message;
+}
+
+function normalizeIntentPlan(plan, message, history) {
+  const allowedIntents = new Set(["chat", "catalog_overview", "search", "recommend"]);
+  const intent = allowedIntents.has(plan?.intent) ? plan.intent : fallbackCatalogIntent(message, history).intent;
+  const query = String(plan?.query || "").trim() || buildForcedCatalogQuery(message, history);
+  const count = Math.max(1, Math.min(3, Number(plan?.count || requestedRecommendationCount(message))));
+
+  return {
+    intent,
+    query: intent === "chat" || intent === "catalog_overview" ? "" : query,
+    count,
+    budgetMax: Number.isFinite(Number(plan?.budgetMax)) ? Number(plan.budgetMax) : null,
+    categoryHints: Array.isArray(plan?.categoryHints) ? plan.categoryHints.map((item) => String(item).trim()).filter(Boolean).slice(0, 6) : [],
+    constraints: Array.isArray(plan?.constraints) ? plan.constraints.map((item) => String(item).trim()).filter(Boolean).slice(0, 8) : [],
+    confidence: Math.max(0, Math.min(1, Number(plan?.confidence || 0))),
+    source: plan?.source || "llm"
+  };
+}
+
+function fallbackCatalogIntent(message, history) {
+  if (isCatalogOverviewRequest(message)) {
+    return {
+      intent: "catalog_overview",
+      query: "",
+      count: 0,
+      budgetMax: null,
+      categoryHints: [],
+      constraints: [],
+      confidence: 0.85,
+      source: "rule"
+    };
+  }
+
+  const shouldLookup = shouldForceCatalogLookup(message, history);
+  if (!shouldLookup) {
+    return {
+      intent: "chat",
+      query: "",
+      count: 0,
+      budgetMax: null,
+      categoryHints: [],
+      constraints: [],
+      confidence: 0.75,
+      source: "rule"
+    };
+  }
+
+  const text = String(message || "");
+  const wantsRecommendation = /推荐|挑|选|几款|一款|两款|三款|礼物|送礼|适合/.test(text) || isCatalogFollowUp(message);
+  return {
+    intent: wantsRecommendation ? "recommend" : "search",
+    query: buildForcedCatalogQuery(message, history),
+    count: requestedRecommendationCount(message),
+    budgetMax: priceIntent(message).max,
+    categoryHints: [],
+    constraints: [],
+    confidence: 0.7,
+    source: "rule"
+  };
+}
+
+async function planCatalogIntent({ config, message, history, products }) {
+  const fallback = fallbackCatalogIntent(message, history);
+  const { apiKey, baseUrl, model } = config;
+  if (!apiKey) return fallback;
+
+  const system = [
+    "你是一个中文导购对话的 Query Planner，只输出严格 JSON。",
+    "你的任务是根据当前用户消息和最近上下文，判断这一轮应如何处理，并生成可用于商品库检索的搜索词。",
+    "你不能推荐具体商品，不能判断库存最终有无，不能编造商品名、价格、规格或二维码。",
+    "如果用户在问商品有无、价格、预算、扫码入口、想买/想找/推荐/挑选，intent 必须是 search 或 recommend。",
+    "如果用户明确要求推荐、挑选、对比具体商品，intent 是 recommend；如果只是问有没有/卖不卖/多少钱，intent 是 search。",
+    "如果用户只是寒暄、问能力、闲聊，intent 是 chat。",
+    "如果用户问店里有哪些商品、类目、经营范围，intent 是 catalog_overview。",
+    "连续对话中，如果当前消息是“那推荐两款”“换几个看看”等省略表达，要结合历史生成完整 query。",
+    "当前商品库类目概览如下：",
+    buildCatalogSummary(products)
+  ].join("\n");
+
+  const user = JSON.stringify({
+    currentMessage: message,
+    history: normalizeHistory(history),
+    requiredShape: {
+      intent: "chat | catalog_overview | search | recommend",
+      query: "用于商品库检索的完整中文搜索词；chat/catalog_overview 时为空字符串",
+      count: "推荐数量，1到3；不是推荐时为0或1",
+      budgetMax: "最高预算数字；没有则 null",
+      categoryHints: ["用户提到或上下文推出的类目/品类词"],
+      constraints: ["口味、用途、对象、规格、价格等约束"],
+      confidence: "0到1之间的小数"
+    }
+  });
+
+  try {
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(modelRequestBody(config, {
+        model,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user }
+        ]
+      }))
+    });
+
+    if (!response.ok) throw new Error(`Model intent plan request failed with ${response.status}`);
+
+    const data = await response.json();
+    const parsed = extractJson(data?.choices?.[0]?.message?.content);
+    return normalizeIntentPlan({ ...parsed, source: "llm" }, message, history);
+  } catch (error) {
+    console.warn(error.message);
+    return fallback;
+  }
+}
+
 function formatPrice(min, max) {
   if (min === max) return `¥${min}`;
   return `¥${min}-${max}`;
@@ -413,59 +586,6 @@ function normalizeHistory(history) {
     }))
     .filter((item) => item.content)
     .slice(-12);
-}
-
-function recommendationTool() {
-  return {
-    type: "function",
-    function: {
-      name: "recommend_products",
-      description:
-        "当用户明确需要你挑选、推荐、比较店铺商品，或需要商品卡片/扫码入口时调用。普通聊天、追问澄清、解释规则时不要调用。",
-      parameters: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "结合当前用户消息和必要上下文后的商品需求，例如预算、品类、用途、口味或送礼对象。"
-          },
-          count: {
-            type: "integer",
-            minimum: 1,
-            maximum: 3,
-            description: "需要推荐的商品数量，默认 3。"
-          }
-        },
-        required: ["query"]
-      }
-    }
-  };
-}
-
-function parseToolArguments(value) {
-  try {
-    return JSON.parse(value || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function appendToolCallDelta(toolCalls, deltaToolCalls = []) {
-  for (const delta of deltaToolCalls) {
-    const index = delta.index || 0;
-    if (!toolCalls[index]) {
-      toolCalls[index] = {
-        id: delta.id || "",
-        type: delta.type || "function",
-        function: { name: "", arguments: "" }
-      };
-    }
-
-    if (delta.id) toolCalls[index].id = delta.id;
-    if (delta.type) toolCalls[index].type = delta.type;
-    if (delta.function?.name) toolCalls[index].function.name += delta.function.name;
-    if (delta.function?.arguments) toolCalls[index].function.arguments += delta.function.arguments;
-  }
 }
 
 function buildLogConversation(history, message) {
@@ -715,30 +835,23 @@ async function streamModelAnalysis(config, emit, message, plan, recommendations)
   if (tail) emit("token", { text: tail });
 }
 
-async function streamAssistantTurn({ config, emit, message, history, products }) {
+async function streamChatResponse({ config, emit, message, history, products }) {
   const { apiKey, baseUrl, model } = config;
   if (!apiKey) {
     emit("meta", { mode: "chat" });
-    emit("token", { text: "当前没有配置大模型服务，我暂时只能在主窗口回复。请配置模型后再让我判断是否需要生成商品推荐卡片。" });
-    return { toolCall: null };
+    emit("token", { text: "当前没有配置大模型服务，我可以处理商品库查询；普通聊天需要配置模型后使用。" });
+    return;
   }
 
   const system = [
-    "你是一个中文店铺导购智能体，可以进行连续上下文对话。",
-    "当前商品库类目概览如下：",
-    buildCatalogSummary(products),
-    "只有当用户明确要求你推荐、挑选、比较具体商品，或需要商品卡片、扫码入口时，才调用 recommend_products 工具。",
-    "如果用户要的品类明显不在商品库类目概览中，不要调用工具；直接说明当前商品库没有该品类，并询问是否愿意看现有类目。",
-    "如果用户只是寒暄、提问、补充偏好、询问流程、修改条件但还没要求你推荐，就只在聊天窗口自然回复，不要调用工具。",
-    "需要推荐但信息明显不足时，先在聊天窗口追问关键条件，不要急着调用工具。",
-    "不要输出思考过程、推理过程、<think> 标签或任何隐藏推理内容。"
+    "你是一个中文店铺导购聊天助手。",
+    "这一轮已经由后端判定为普通聊天，不是商品库查询或推荐。",
+    "不要输出具体商品名、价格、规格、库存、有无售卖结论或二维码信息。",
+    "如果用户转而询问商品、价格、推荐、库存或扫码入口，请简短提醒用户直接描述商品需求，后端会查询商品库。",
+    "不要输出思考过程、推理过程、<think> 标签或任何隐藏推理内容。",
+    "当前商品库类目概览仅供你描述能力边界，不得据此断言具体商品库存：",
+    buildCatalogSummary(products)
   ].join("\n");
-
-  const messages = [
-    { role: "system", content: system },
-    ...normalizeHistory(history),
-    { role: "user", content: message }
-  ];
 
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
@@ -750,9 +863,11 @@ async function streamAssistantTurn({ config, emit, message, history, products })
       model,
       temperature: 0.35,
       stream: true,
-      tools: [recommendationTool()],
-      tool_choice: "auto",
-      messages
+      messages: [
+        { role: "system", content: system },
+        ...normalizeHistory(history),
+        { role: "user", content: message }
+      ]
     }))
   });
 
@@ -764,7 +879,6 @@ async function streamAssistantTurn({ config, emit, message, history, products })
 
   const decoder = new TextDecoder();
   const visibleText = createVisibleTextFilter();
-  const toolCalls = [];
   let buffer = "";
 
   for await (const chunk of response.body) {
@@ -779,9 +893,7 @@ async function streamAssistantTurn({ config, emit, message, history, products })
         if (!data || data === "[DONE]") continue;
         try {
           const parsed = JSON.parse(data);
-          const delta = parsed?.choices?.[0]?.delta || {};
-          appendToolCallDelta(toolCalls, delta.tool_calls || []);
-          const text = visibleText.push(delta.content || "");
+          const text = visibleText.push(parsed?.choices?.[0]?.delta?.content || "");
           if (text) emit("token", { text });
         } catch {
           continue;
@@ -792,9 +904,103 @@ async function streamAssistantTurn({ config, emit, message, history, products })
 
   const tail = visibleText.flush();
   if (tail) emit("token", { text: tail });
+}
 
-  const toolCall = toolCalls.find((item) => item?.function?.name === "recommend_products");
-  return { toolCall: toolCall || null };
+async function runRecommendationFlow({ products, config, emit, logEntry, recommendationNeed, recommendationCount, toolCall }) {
+  logEntry.toolCall = toolCall;
+  logEntry.recommendationRequest = {
+    query: recommendationNeed,
+    count: recommendationCount
+  };
+
+  const candidateEntries = localCandidateEntries(products, recommendationNeed, 18);
+  const inventoryMatch = evaluateCatalogCoverage(products, recommendationNeed, candidateEntries);
+  logEntry.inventoryMatch = {
+    matched: inventoryMatch.matched,
+    query: inventoryMatch.query,
+    topCoverageScore: inventoryMatch.topCoverageScore,
+    matchedCount: inventoryMatch.matchedCount,
+    availableCategories: inventoryMatch.availableCategories
+  };
+
+  if (!inventoryMatch.matched) {
+    emit("meta", { mode: "no_match" });
+    emit("token", { text: noCatalogMatchText(inventoryMatch) });
+    return false;
+  }
+
+  emit("meta", { mode: "selecting" });
+
+  const scopedCandidateEntries = inventoryMatch.candidateEntries.slice(0, Math.max(6, recommendationCount * 6));
+  const scopedCandidates = scopedCandidateEntries.map(({ product }) => product);
+  let plan = null;
+  try {
+    plan = await llmRecommendationPlan(config, recommendationNeed, scopedCandidates);
+  } catch (error) {
+    console.warn(error.message);
+  }
+
+  const fallbackEntries = scopedCandidateEntries.slice(0, Math.max(3, recommendationCount));
+  const reply = plan || fallbackRecommendation(products, recommendationNeed, fallbackEntries);
+  reply.recommendations = reply.recommendations.slice(0, recommendationCount);
+  const recommendations = hydrateRecommendations(products, reply, recommendationNeed);
+
+  emit("meta", { mode: reply.mode });
+  emit("recommendations", { recommendations });
+
+  try {
+    await streamModelAnalysis(config, emit, recommendationNeed, reply, recommendations);
+  } catch (error) {
+    console.warn(error.message);
+    emit("token", { text: fallbackStreamText(recommendationNeed, recommendations) });
+  }
+
+  return true;
+}
+
+function catalogSearchText(query, entries) {
+  const productsForReply = entries
+    .map(({ product }) => product)
+    .filter(Boolean)
+    .slice(0, 3);
+  const names = productsForReply.map((product) => `「${product.name}」`).join("、");
+  const categories = [
+    ...new Set(productsForReply.map((product) => product.category3 || product.category2 || product.category1).filter(Boolean))
+  ].join("、");
+
+  if (!productsForReply.length) {
+    return `我查了当前商品库，暂时没有和「${query}」明确匹配的商品。`;
+  }
+
+  return `我查了当前商品库，有和「${query}」相关的商品，主要集中在${categories || "相关"}类目，比如 ${names}。如果你需要，我可以继续按预算、用途或数量生成推荐卡片。`;
+}
+
+async function runCatalogSearchFlow({ products, emit, logEntry, query, count, toolCall }) {
+  logEntry.toolCall = toolCall;
+  logEntry.recommendationRequest = {
+    query,
+    count
+  };
+
+  const candidateEntries = localCandidateEntries(products, query, 18);
+  const inventoryMatch = evaluateCatalogCoverage(products, query, candidateEntries);
+  logEntry.inventoryMatch = {
+    matched: inventoryMatch.matched,
+    query: inventoryMatch.query,
+    topCoverageScore: inventoryMatch.topCoverageScore,
+    matchedCount: inventoryMatch.matchedCount,
+    availableCategories: inventoryMatch.availableCategories
+  };
+
+  if (!inventoryMatch.matched) {
+    emit("meta", { mode: "no_match" });
+    emit("token", { text: noCatalogMatchText(inventoryMatch) });
+    return false;
+  }
+
+  emit("meta", { mode: "search" });
+  emit("token", { text: catalogSearchText(query, inventoryMatch.candidateEntries) });
+  return true;
 }
 
 export async function createRecommendationStream({ message, history = [], products, config, logContext = {}, onLog }) {
@@ -816,6 +1022,7 @@ export async function createRecommendationStream({ message, history = [], produc
         user: logContext.user || null,
         client: logContext.client || {},
         conversation,
+        intentPlan: null,
         toolCall: null,
         inventoryMatch: null,
         recommendationRequest: null,
@@ -847,69 +1054,63 @@ export async function createRecommendationStream({ message, history = [], produc
       };
 
       try {
-        const { toolCall } = await streamAssistantTurn({ config, emit, message, history, products });
-        if (!toolCall) {
+        const intentPlan = await planCatalogIntent({ config, message, history, products });
+        logEntry.intentPlan = intentPlan;
+
+        if (intentPlan.intent === "catalog_overview") {
+          emit("meta", { mode: "chat" });
+          emit("token", { text: catalogOverviewText(products) });
           emit("done", { ok: true });
           logEntry.status = "completed";
           return;
         }
 
-        const toolArgs = parseToolArguments(toolCall.function.arguments);
-        const recommendationNeed = String(toolArgs.query || message).trim() || message;
-        const recommendationCount = Math.max(1, Math.min(3, Number(toolArgs.count || 3)));
-        logEntry.toolCall = {
-          id: toolCall.id || "",
-          name: toolCall.function.name,
-          arguments: toolArgs
-        };
-        logEntry.recommendationRequest = {
-          query: recommendationNeed,
-          count: recommendationCount
-        };
-        const candidateEntries = localCandidateEntries(products, recommendationNeed, 18);
-        const inventoryMatch = evaluateCatalogCoverage(products, recommendationNeed, candidateEntries);
-        logEntry.inventoryMatch = {
-          matched: inventoryMatch.matched,
-          query: inventoryMatch.query,
-          topCoverageScore: inventoryMatch.topCoverageScore,
-          matchedCount: inventoryMatch.matchedCount,
-          availableCategories: inventoryMatch.availableCategories
-        };
-
-        if (!inventoryMatch.matched) {
-          emit("meta", { mode: "no_match" });
-          emit("token", { text: noCatalogMatchText(inventoryMatch) });
+        if (intentPlan.intent === "search") {
+          await runCatalogSearchFlow({
+            products,
+            emit,
+            logEntry,
+            query: intentPlan.query,
+            count: intentPlan.count,
+            toolCall: {
+              id: "planned_catalog_search",
+              name: "search_catalog",
+              arguments: {
+                query: intentPlan.query,
+                count: intentPlan.count,
+                planned: true
+              }
+            }
+          });
           emit("done", { ok: true });
           logEntry.status = "completed";
           return;
         }
 
-        emit("meta", { mode: "selecting" });
-
-        const scopedCandidateEntries = inventoryMatch.candidateEntries.slice(0, Math.max(6, recommendationCount * 6));
-        const scopedCandidates = scopedCandidateEntries.map(({ product }) => product);
-        let plan = null;
-        try {
-          plan = await llmRecommendationPlan(config, recommendationNeed, scopedCandidates);
-        } catch (error) {
-          console.warn(error.message);
+        if (intentPlan.intent === "recommend") {
+          await runRecommendationFlow({
+            products,
+            config,
+            emit,
+            logEntry,
+            recommendationNeed: intentPlan.query,
+            recommendationCount: intentPlan.count,
+            toolCall: {
+              id: "planned_catalog_recommendation",
+              name: "recommend_products",
+              arguments: {
+                query: intentPlan.query,
+                count: intentPlan.count,
+                planned: true
+              }
+            }
+          });
+          emit("done", { ok: true });
+          logEntry.status = "completed";
+          return;
         }
 
-        const fallbackEntries = scopedCandidateEntries.slice(0, Math.max(3, recommendationCount));
-        const reply = plan || fallbackRecommendation(products, recommendationNeed, fallbackEntries);
-        reply.recommendations = reply.recommendations.slice(0, recommendationCount);
-        const recommendations = hydrateRecommendations(products, reply, recommendationNeed);
-
-        emit("meta", { mode: reply.mode });
-        emit("recommendations", { recommendations });
-
-        try {
-          await streamModelAnalysis(config, emit, recommendationNeed, reply, recommendations);
-        } catch (error) {
-          console.warn(error.message);
-          emit("token", { text: fallbackStreamText(recommendationNeed, recommendations) });
-        }
-
+        await streamChatResponse({ config, emit, message, history, products });
         emit("done", { ok: true });
         logEntry.status = "completed";
       } catch (error) {

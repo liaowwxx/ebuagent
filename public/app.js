@@ -472,6 +472,8 @@ form.addEventListener("submit", async (event) => {
           }
         } else if (data.mode === "llm") {
           setRecommendationStatus("AI 推荐", "ready");
+        } else if (data.mode === "search") {
+          setRecommendationStatus("已查库", "idle");
         } else if (data.mode === "no_match") {
           renderNoMatchRecommendationState();
         } else if (data.mode === "chat") {
