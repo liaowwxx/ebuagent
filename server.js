@@ -10,6 +10,7 @@ import {
   sseHeaders
 } from "./src/recommendation-core.js";
 import { createRateLimiter } from "./src/rate-limiter.js";
+import { normalizeClientLogEvent } from "./src/log-events.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -21,6 +22,7 @@ const QR_SOURCE_DIR = path.join(__dirname, "mini_qrcode_export");
 const PRODUCTS_PATH = path.join(PUBLIC_DIR, "data", "products.json");
 const LOG_DIR = path.join(__dirname, "logs");
 const CHAT_LOG_PATH = path.join(LOG_DIR, "chat-conversations.jsonl");
+const FEEDBACK_LOG_PATH = path.join(LOG_DIR, "chat-events.jsonl");
 const products = JSON.parse(await readFile(PRODUCTS_PATH, "utf8"));
 
 const mimeTypes = {
@@ -101,6 +103,11 @@ function requestClientContext(req) {
 async function appendChatLog(entry) {
   await mkdir(LOG_DIR, { recursive: true });
   await appendFile(CHAT_LOG_PATH, `${JSON.stringify(entry)}\n`, "utf8");
+}
+
+async function appendFeedbackLog(entry) {
+  await mkdir(LOG_DIR, { recursive: true });
+  await appendFile(FEEDBACK_LOG_PATH, `${JSON.stringify(entry)}\n`, "utf8");
 }
 
 async function handleRecommendStream(req, res, user = null) {
@@ -270,6 +277,11 @@ async function handleLogin(req, res) {
 }
 
 function handleCheck(req, res) {
+  if (!AUTH_ENABLED) {
+    sendJson(res, 200, { authenticated: true });
+    return;
+  }
+
   const cookies = parseCookieHeader(req.headers.cookie);
   const payload = verifyTokenNode(cookies[COOKIE_NAME], process.env.AUTH_SECRET);
   if (!payload) {
@@ -294,25 +306,44 @@ function authGuard(req, res) {
   return true;
 }
 
+async function handleFeedback(req, res, user = null) {
+  try {
+    const body = await readBody(req);
+    const event = normalizeClientLogEvent(body, {
+      user,
+      client: requestClientContext(req)
+    });
+    await appendFeedbackLog(event);
+    sendJson(res, 200, { ok: true, stored: "local_event_log" });
+  } catch (error) {
+    sendJson(res, 400, { error: error.message || "反馈保存失败。" });
+  }
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
 
   // Auth endpoints
-  if (AUTH_ENABLED) {
-    if (req.method === "POST" && url.pathname === "/api/login") {
-      await handleLogin(req, res);
-      return;
-    }
-    if (req.method === "GET" && url.pathname === "/api/check") {
-      handleCheck(req, res);
-      return;
-    }
+  if (req.method === "GET" && url.pathname === "/api/check") {
+    handleCheck(req, res);
+    return;
+  }
+  if (AUTH_ENABLED && req.method === "POST" && url.pathname === "/api/login") {
+    await handleLogin(req, res);
+    return;
   }
 
   if (req.method === "POST" && url.pathname === "/api/recommend/stream") {
     if (!authGuard(req, res)) return;
     const payload = getAuthPayload(req);
     await handleRecommendStream(req, res, payload ? { username: payload.username || "" } : null);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/feedback") {
+    if (!authGuard(req, res)) return;
+    const payload = getAuthPayload(req);
+    await handleFeedback(req, res, payload ? { username: payload.username || "" } : null);
     return;
   }
 

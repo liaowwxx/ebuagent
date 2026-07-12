@@ -6,6 +6,12 @@ import {
   sseHeaders
 } from "../../../src/recommendation-core.js";
 import { COOKIE_NAME, parseCookies, verifyToken } from "../../../src/auth.js";
+import {
+  applyLogEvent,
+  chatLogKey,
+  chatLogMetadata,
+  pendingEventPrefix
+} from "../../../src/log-events.js";
 
 function fallbackId() {
   return `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -27,22 +33,26 @@ function requestClientContext(request) {
 
 async function saveChatLog(env, entry) {
   if (env.CHAT_LOGS?.put) {
-    const day = entry.startedAt.slice(0, 10);
-    const key = `chat/${day}/${entry.sessionId}/${entry.requestId}.json`;
+    await mergePendingEvents(env, entry);
+    const key = chatLogKey(entry);
     await env.CHAT_LOGS.put(key, JSON.stringify(entry, null, 2), {
-      metadata: {
-        schemaVersion: String(entry.schemaVersion || 1),
-        sessionId: entry.sessionId,
-        status: entry.status,
-        mode: entry.mode || "unknown",
-        hasRecommendations: String((entry.recommendations || []).length > 0),
-        startedAt: entry.startedAt
-      }
+      metadata: chatLogMetadata(entry)
     });
     return;
   }
 
   console.log(JSON.stringify({ type: "chat_log", ...entry }));
+}
+
+async function mergePendingEvents(env, entry) {
+  if (!env.CHAT_LOGS?.list) return;
+  const prefix = pendingEventPrefix(entry);
+  const list = await env.CHAT_LOGS.list({ prefix, limit: 100 });
+
+  for (const item of list.keys || []) {
+    const event = await env.CHAT_LOGS.get(item.name, "json");
+    if (event) applyLogEvent(entry, event);
+  }
 }
 
 export async function onRequestPost({ request, env }) {

@@ -380,7 +380,7 @@ function isCatalogOverviewRequest(message) {
 }
 
 function hasProductIntent(text) {
-  return /推荐|有没有|有吗|有么|有售|卖|买|想要|想买|想找|挑|选|商品|价格|多少钱|预算|扫码|二维码|礼盒|零食|小吃|酒|红酒|葡萄酒|水果|榴莲|耳机|牛排|面|粽|茶|巧克力|坚果|冰淇淋|甜品|生鲜|冻品|饰品|手链|礼物|送礼/.test(
+  return /推荐|有没有|有吗|有么|有售|卖|买|买点|想要|想买|想找|挑|选|看看|看下|来点|商品|价格|多少钱|预算|扫码|二维码|礼盒|零食|小吃|吃的|喝的|食品|酒|红酒|葡萄酒|水果|榴莲|耳机|牛排|面|粽|茶|巧克力|坚果|冰淇淋|甜品|生鲜|冻品|饰品|手链|礼物|礼品|送礼|送人|送朋友|伴手礼|年货/.test(
     String(text || "")
   );
 }
@@ -405,6 +405,14 @@ function shouldForceCatalogLookup(message, history) {
   return isCatalogFollowUp(message) && hasProductIntent(recentUserMessages);
 }
 
+function isDirectInfoRequest(message) {
+  const text = String(message || "");
+  if (/推荐|挑|选|来|看看|看下|换|几款|一款|两款|三款|适合|搭配|送礼|礼物|想买|想要|想找|买/.test(text)) {
+    return false;
+  }
+  return /多少钱|价格|价位|售价|卖不卖|库存/.test(text);
+}
+
 function requestedRecommendationCount(message) {
   const text = String(message || "");
   if (/一款|一个|1\s*款?/.test(text)) return 1;
@@ -420,6 +428,26 @@ function buildForcedCatalogQuery(message, history) {
     .map((item) => item.content);
 
   return [...recentUserMessages, message].join("；").trim() || message;
+}
+
+function enrichCatalogQuery(query) {
+  const text = String(query || "");
+  const hints = [];
+
+  if (/吃的|食品|来点|小吃|零食/.test(text)) {
+    hints.push("零食", "小吃", "甜品", "坚果", "巧克力", "方便面", "牛排", "粽子");
+  }
+
+  if (/喝的|饮品|酒|聚会|佐餐/.test(text)) {
+    hints.push("茶", "红酒", "葡萄酒", "利口酒");
+  }
+
+  if (/送|朋友|礼物|礼品|伴手礼|年货|东西/.test(text)) {
+    hints.push("礼盒", "礼包", "伴手礼", "零食", "坚果", "红酒", "巧克力");
+  }
+
+  const uniqueHints = [...new Set(hints)].filter((hint) => !text.includes(hint));
+  return uniqueHints.length ? `${text}；${uniqueHints.join(" ")}` : text;
 }
 
 function normalizeIntentPlan(plan, message, history) {
@@ -469,7 +497,7 @@ function fallbackCatalogIntent(message, history) {
   }
 
   const text = String(message || "");
-  const wantsRecommendation = /推荐|挑|选|几款|一款|两款|三款|礼物|送礼|适合/.test(text) || isCatalogFollowUp(message);
+  const wantsRecommendation = !isDirectInfoRequest(text) || isCatalogFollowUp(message);
   return {
     intent: wantsRecommendation ? "recommend" : "search",
     query: buildForcedCatalogQuery(message, history),
@@ -491,8 +519,11 @@ async function planCatalogIntent({ config, message, history, products }) {
     "你是一个中文导购对话的 Query Planner，只输出严格 JSON。",
     "你的任务是根据当前用户消息和最近上下文，判断这一轮应如何处理，并生成可用于商品库检索的搜索词。",
     "你不能推荐具体商品，不能判断库存最终有无，不能编造商品名、价格、规格或二维码。",
-    "如果用户在问商品有无、价格、预算、扫码入口、想买/想找/推荐/挑选，intent 必须是 search 或 recommend。",
-    "如果用户明确要求推荐、挑选、对比具体商品，intent 是 recommend；如果只是问有没有/卖不卖/多少钱，intent 是 search。",
+    "推荐入口要主动：只要用户表达了购买意向、品类、口味、预算、送礼对象、使用场景、想买/想要/想找/看看/来点/帮我选，就优先 intent=recommend。",
+    "不要因为预算、口味、对象、数量、规格不完整就先追问；信息不足时用已有线索直接推荐最多3款，并把不确定点放到推荐说明里。",
+    "如果用户只说“来点吃的”“送朋友买点东西”等泛需求，query 要补充店内可能相关的类目词，例如零食、小吃、甜品、礼盒、伴手礼、红酒、坚果，而不是留成空泛词。",
+    "如果用户在问商品有无、价格、预算、扫码入口、想买/想找/推荐/挑选，intent 必须是 search 或 recommend；其中大多数购物需求应选 recommend。",
+    "用户问“有没有某类商品”时也优先 recommend，用商品卡直接展示可选项；只有用户明确只是查卖不卖、多少钱、价格或库存，且没有让你挑选/推荐/看看时，intent 才是 search。",
     "如果用户只是寒暄、问能力、闲聊，intent 是 chat。",
     "如果用户问店里有哪些商品、类目、经营范围，intent 是 catalog_overview。",
     "连续对话中，如果当前消息是“那推荐两款”“换几个看看”等省略表达，要结合历史生成完整 query。",
@@ -907,14 +938,16 @@ async function streamChatResponse({ config, emit, message, history, products }) 
 }
 
 async function runRecommendationFlow({ products, config, emit, logEntry, recommendationNeed, recommendationCount, toolCall }) {
+  const lookupQuery = enrichCatalogQuery(recommendationNeed);
   logEntry.toolCall = toolCall;
   logEntry.recommendationRequest = {
     query: recommendationNeed,
+    lookupQuery,
     count: recommendationCount
   };
 
-  const candidateEntries = localCandidateEntries(products, recommendationNeed, 18);
-  const inventoryMatch = evaluateCatalogCoverage(products, recommendationNeed, candidateEntries);
+  const candidateEntries = localCandidateEntries(products, lookupQuery, 18);
+  const inventoryMatch = evaluateCatalogCoverage(products, lookupQuery, candidateEntries);
   logEntry.inventoryMatch = {
     matched: inventoryMatch.matched,
     query: inventoryMatch.query,
@@ -925,7 +958,7 @@ async function runRecommendationFlow({ products, config, emit, logEntry, recomme
 
   if (!inventoryMatch.matched) {
     emit("meta", { mode: "no_match" });
-    emit("token", { text: noCatalogMatchText(inventoryMatch) });
+    emit("token", { text: noCatalogMatchText({ ...inventoryMatch, query: recommendationNeed }) });
     return false;
   }
 
@@ -976,14 +1009,16 @@ function catalogSearchText(query, entries) {
 }
 
 async function runCatalogSearchFlow({ products, emit, logEntry, query, count, toolCall }) {
+  const lookupQuery = enrichCatalogQuery(query);
   logEntry.toolCall = toolCall;
   logEntry.recommendationRequest = {
     query,
+    lookupQuery,
     count
   };
 
-  const candidateEntries = localCandidateEntries(products, query, 18);
-  const inventoryMatch = evaluateCatalogCoverage(products, query, candidateEntries);
+  const candidateEntries = localCandidateEntries(products, lookupQuery, 18);
+  const inventoryMatch = evaluateCatalogCoverage(products, lookupQuery, candidateEntries);
   logEntry.inventoryMatch = {
     matched: inventoryMatch.matched,
     query: inventoryMatch.query,
@@ -994,7 +1029,7 @@ async function runCatalogSearchFlow({ products, emit, logEntry, query, count, to
 
   if (!inventoryMatch.matched) {
     emit("meta", { mode: "no_match" });
-    emit("token", { text: noCatalogMatchText(inventoryMatch) });
+    emit("token", { text: noCatalogMatchText({ ...inventoryMatch, query }) });
     return false;
   }
 
@@ -1027,6 +1062,19 @@ export async function createRecommendationStream({ message, history = [], produc
         inventoryMatch: null,
         recommendationRequest: null,
         recommendations: [],
+        feedback: {
+          rating: null,
+          ratingSubmittedAt: null,
+          lowScoreReason: "",
+          lowScoreReasonSubmittedAt: null
+        },
+        interactionEvents: [],
+        interactionSummary: {
+          productDetailClickCount: 0,
+          detailClickedProductIds: [],
+          productDetailClicked: false
+        },
+        productDetailClicked: false,
         error: null,
         // Legacy shape retained so existing local/KV readers do not break immediately.
         dialogue: {
@@ -1054,13 +1102,25 @@ export async function createRecommendationStream({ message, history = [], produc
       };
 
       try {
+        emit("meta", {
+          mode: "started",
+          requestId: logEntry.requestId,
+          sessionId: logEntry.sessionId,
+          startedAt: logEntry.startedAt
+        });
+
         const intentPlan = await planCatalogIntent({ config, message, history, products });
         logEntry.intentPlan = intentPlan;
 
         if (intentPlan.intent === "catalog_overview") {
           emit("meta", { mode: "chat" });
           emit("token", { text: catalogOverviewText(products) });
-          emit("done", { ok: true });
+          emit("done", {
+            ok: true,
+            requestId: logEntry.requestId,
+            sessionId: logEntry.sessionId,
+            startedAt: logEntry.startedAt
+          });
           logEntry.status = "completed";
           return;
         }
@@ -1082,7 +1142,12 @@ export async function createRecommendationStream({ message, history = [], produc
               }
             }
           });
-          emit("done", { ok: true });
+          emit("done", {
+            ok: true,
+            requestId: logEntry.requestId,
+            sessionId: logEntry.sessionId,
+            startedAt: logEntry.startedAt
+          });
           logEntry.status = "completed";
           return;
         }
@@ -1105,13 +1170,23 @@ export async function createRecommendationStream({ message, history = [], produc
               }
             }
           });
-          emit("done", { ok: true });
+          emit("done", {
+            ok: true,
+            requestId: logEntry.requestId,
+            sessionId: logEntry.sessionId,
+            startedAt: logEntry.startedAt
+          });
           logEntry.status = "completed";
           return;
         }
 
         await streamChatResponse({ config, emit, message, history, products });
-        emit("done", { ok: true });
+        emit("done", {
+          ok: true,
+          requestId: logEntry.requestId,
+          sessionId: logEntry.sessionId,
+          startedAt: logEntry.startedAt
+        });
         logEntry.status = "completed";
       } catch (error) {
         emit("error", { error: error.message || "推荐服务暂时不可用。" });

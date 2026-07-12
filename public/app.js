@@ -95,6 +95,9 @@ const privacyText = "数据隐私声明：您的聊天可能会被记录；聊�
 let isSending = false;
 let privacyNoticeShown = false;
 let conversationHistory = [];
+let activeResponseContext = null;
+let feedbackState = null;
+const sentInteractionKeys = new Set();
 
 function fallbackId() {
   return `session_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -114,6 +117,8 @@ function getSessionId() {
 }
 
 const sessionId = getSessionId();
+
+const feedbackWidget = createFeedbackWidget();
 
 function openRecPanel() {
   recPanel.classList.add("open");
@@ -179,6 +184,175 @@ function specLabel(product) {
   return unique.slice(0, 3).join(" / ") + (unique.length > 3 ? ` 等${unique.length}种` : "");
 }
 
+function responseContextFrom(data) {
+  if (!data?.requestId) return null;
+  return {
+    requestId: String(data.requestId),
+    sessionId: String(data.sessionId || sessionId),
+    startedAt: String(data.startedAt || new Date().toISOString())
+  };
+}
+
+function sendLogEvent(payload) {
+  return fetch("/api/feedback", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+    keepalive: true
+  });
+}
+
+function eventPayload(context, eventType, data = {}) {
+  return {
+    ...context,
+    eventType,
+    ...data
+  };
+}
+
+function trackProductDetailClick(context, product, source) {
+  if (!context?.requestId || !product?.productId) return;
+  const key = `${context.requestId}:product_detail_click:${product.productId}`;
+  if (sentInteractionKeys.has(key)) return;
+  sentInteractionKeys.add(key);
+
+  sendLogEvent(
+    eventPayload(context, "product_detail_click", {
+      productId: product.productId,
+      productName: product.name,
+      source
+    })
+  ).catch(() => {});
+}
+
+function detailControlHtml(product) {
+  const hasDetail = product.hasQrCode && product.qrCodePath;
+  const prompt = hasDetail ? "查看详情" : "暂无详情";
+  return `
+    <button type="button" class="qr-wrap detail-toggle ${hasDetail ? "has-detail" : "no-detail"}" aria-label="${escapeHtml(product.name)} 商品详情" ${hasDetail ? "" : "disabled"}>
+      ${
+        hasDetail
+          ? `<img class="detail-qr" src="${escapeHtml(product.qrCodePath)}" alt="${escapeHtml(product.name)} 小程序二维码" />`
+          : `<div class="qr-empty">暂无<br />二维码</div>`
+      }
+      <span>${escapeHtml(prompt)}</span>
+    </button>
+  `;
+}
+
+function createFeedbackWidget() {
+  const widget = document.createElement("aside");
+  widget.className = "feedback-widget hidden";
+  widget.setAttribute("aria-live", "polite");
+  widget.innerHTML = `
+    <button type="button" class="feedback-close" aria-label="关闭评分">×</button>
+    <form class="feedback-form">
+      <strong>这次回答评分</strong>
+      <label>
+        <span>1-10 分</span>
+        <select class="feedback-score" required>
+          <option value="">选择</option>
+          ${Array.from({ length: 10 }, (_, index) => `<option value="${index + 1}">${index + 1}</option>`).join("")}
+        </select>
+      </label>
+      <label class="feedback-reason hidden">
+        <span>原因</span>
+        <textarea rows="2" placeholder="哪里不合适？"></textarea>
+      </label>
+      <button type="submit" class="feedback-submit">提交</button>
+      <p class="feedback-status"></p>
+    </form>
+  `;
+  document.body.append(widget);
+
+  const closeButton = widget.querySelector(".feedback-close");
+  const formEl = widget.querySelector(".feedback-form");
+  const scoreEl = widget.querySelector(".feedback-score");
+  const reasonWrap = widget.querySelector(".feedback-reason");
+  const reasonEl = reasonWrap.querySelector("textarea");
+  const submitEl = widget.querySelector(".feedback-submit");
+  const statusEl = widget.querySelector(".feedback-status");
+
+  closeButton.addEventListener("click", () => {
+    widget.classList.add("hidden");
+  });
+
+  scoreEl.addEventListener("change", () => {
+    const rating = Number(scoreEl.value);
+    reasonWrap.classList.toggle("hidden", !(rating > 0 && rating < 5 && feedbackState?.ratingSubmitted));
+    statusEl.textContent = "";
+  });
+
+  formEl.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!feedbackState?.context) return;
+
+    const rating = Number(scoreEl.value);
+    if (!Number.isInteger(rating) || rating < 1 || rating > 10) {
+      statusEl.textContent = "请选择 1-10 分。";
+      return;
+    }
+
+    submitEl.disabled = true;
+    statusEl.textContent = "";
+
+    try {
+      if (!feedbackState.ratingSubmitted) {
+        await sendLogEvent(eventPayload(feedbackState.context, "rating", { rating }));
+        feedbackState.ratingSubmitted = true;
+        feedbackState.rating = rating;
+
+        if (rating < 5) {
+          reasonWrap.classList.remove("hidden");
+          reasonEl.focus();
+          statusEl.textContent = "可以写下原因。";
+          submitEl.textContent = "提交原因";
+          return;
+        }
+
+        statusEl.textContent = "已提交";
+        setTimeout(() => widget.classList.add("hidden"), 900);
+        return;
+      }
+
+      const reason = reasonEl.value.trim();
+      if (feedbackState.rating < 5 && !reason) {
+        statusEl.textContent = "请简单写下原因。";
+        return;
+      }
+
+      await sendLogEvent(eventPayload(feedbackState.context, "low_score_reason", { reason }));
+      statusEl.textContent = "已提交";
+      setTimeout(() => widget.classList.add("hidden"), 900);
+    } catch {
+      statusEl.textContent = "提交失败，请稍后再试。";
+    } finally {
+      submitEl.disabled = false;
+    }
+  });
+
+  return {
+    show(context) {
+      if (!context?.requestId) return;
+      feedbackState = {
+        context,
+        rating: null,
+        ratingSubmitted: false
+      };
+      scoreEl.value = "";
+      reasonEl.value = "";
+      reasonWrap.classList.add("hidden");
+      submitEl.textContent = "提交";
+      submitEl.disabled = false;
+      statusEl.textContent = "";
+      widget.classList.remove("hidden");
+    },
+    hide() {
+      widget.classList.add("hidden");
+    }
+  };
+}
+
 function addMessage({ role, text, recommendations = [], chips = [] }) {
   const message = document.createElement("article");
   message.className = `message ${role}`;
@@ -225,15 +399,14 @@ function addMessage({ role, text, recommendations = [], chips = [] }) {
             <span>${escapeHtml(specLabel(product))}</span>
           </div>
         </div>
-        <div class="qr-wrap">
-          ${
-            product.hasQrCode && product.qrCodePath
-              ? `<img src="${escapeHtml(product.qrCodePath)}" alt="${escapeHtml(product.name)} 小程序二维码" />`
-              : `<div class="qr-empty">暂无<br />二维码</div>`
-          }
-          <span>扫码查看</span>
-        </div>
+        ${detailControlHtml(product)}
       `;
+      const detailButton = card.querySelector(".detail-toggle");
+      detailButton.addEventListener("click", () => {
+        if (detailButton.disabled) return;
+        detailButton.classList.add("revealed");
+        detailButton.querySelector("span").textContent = product.scanPrompt || "扫码查看";
+      });
       list.append(card);
     });
     bubble.append(list);
@@ -289,6 +462,7 @@ function renderRecommendations(recommendations) {
   recToggle.classList.add("has-recs");
   setRecommendationStatus("已生成", "ready");
   recommendationList.innerHTML = "";
+  const context = activeResponseContext ? { ...activeResponseContext } : null;
   recommendations.forEach((product, index) => {
     const card = document.createElement("section");
     card.className = "product-card";
@@ -306,15 +480,15 @@ function renderRecommendations(recommendations) {
           <span>${escapeHtml(specLabel(product))}</span>
         </div>
       </div>
-      <div class="qr-wrap">
-        ${
-          product.hasQrCode && product.qrCodePath
-            ? `<img src="${escapeHtml(product.qrCodePath)}" alt="${escapeHtml(product.name)} 小程序二维码" />`
-            : `<div class="qr-empty">暂无<br />二维码</div>`
-        }
-        <span>${escapeHtml(product.scanPrompt || "扫码查看")}</span>
-      </div>
+      ${detailControlHtml(product)}
     `;
+    const detailButton = card.querySelector(".detail-toggle");
+    detailButton.addEventListener("click", () => {
+      if (detailButton.disabled) return;
+      detailButton.classList.add("revealed");
+      detailButton.querySelector("span").textContent = product.scanPrompt || "扫码查看";
+      trackProductDetailClick(context, product, "detail_button");
+    });
     recommendationList.append(card);
   });
 }
@@ -457,13 +631,20 @@ form.addEventListener("submit", async (event) => {
   input.value = "";
   resizeInput();
   setSending(true);
+  activeResponseContext = null;
+  feedbackWidget.hide();
   const stream = addStreamingMessage();
   const historySnapshot = conversationHistory.slice(-12);
 
   try {
     await requestRecommendationStream(message, historySnapshot, {
       meta(data) {
-        if (data.mode === "selecting") {
+        const context = responseContextFrom(data);
+        if (context) activeResponseContext = context;
+
+        if (data.mode === "started") {
+          return;
+        } else if (data.mode === "selecting") {
           setRecommendationLoading();
         } else if (data.mode === "local") {
           setRecommendationStatus("本地推荐", "local");
@@ -491,8 +672,11 @@ form.addEventListener("submit", async (event) => {
       error(data) {
         throw new Error(data.error || "推荐服务暂时不可用。");
       },
-      done() {
+      done(data) {
+        const context = responseContextFrom(data);
+        if (context) activeResponseContext = context;
         stream.finish();
+        feedbackWidget.show(activeResponseContext);
       }
     });
     stream.finish();
