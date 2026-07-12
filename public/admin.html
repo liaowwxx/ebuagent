@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>日志管理</title>
+    <link rel="stylesheet" href="/admin.css?v=20260712" />
+  </head>
+  <body>
+    <main class="admin-shell">
+      <header class="admin-header">
+        <div>
+          <p>Cloudflare KV</p>
+          <h1>日志管理</h1>
+        </div>
+        <a href="/">返回聊天</a>
+      </header>
+
+      <section class="toolbar" aria-label="日志操作">
+        <label>
+          <span>范围</span>
+          <select id="prefixSelect">
+            <option value="chat/">聊天日志 chat/</option>
+            <option value="chat-events/">待合并事件 chat-events/</option>
+            <option value="">全部 KV</option>
+          </select>
+        </label>
+        <button type="button" id="refreshButton">刷新</button>
+        <button type="button" id="downloadSelectedButton">下载已选</button>
+        <button type="button" id="downloadPrefixButton">下载当前范围</button>
+      </section>
+
+      <section class="danger-zone" aria-label="删除日志">
+        <button type="button" id="deleteSelectedButton">删除已选</button>
+        <label>
+          <span>批量删除确认</span>
+          <input id="deleteConfirmInput" type="text" placeholder="输入 DELETE 后可删当前范围" />
+        </label>
+        <button type="button" id="deletePrefixButton">删除当前范围</button>
+      </section>
+
+      <section class="summary">
+        <strong id="statusText">正在检查登录状态...</strong>
+        <span id="countText"></span>
+      </section>
+
+      <section class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th><input id="selectAllBox" type="checkbox" aria-label="全选" /></th>
+              <th>Key</th>
+              <th>状态</th>
+              <th>时间</th>
+            </tr>
+          </thead>
+          <tbody id="keyTableBody"></tbody>
+        </table>
+        <div id="emptyState" class="empty-state">暂无数据</div>
+      </section>
+
+      <button type="button" id="loadMoreButton" class="load-more hidden">加载更多</button>
+    </main>
+
+    <script type="module" src="/admin.js?v=20260712"></script>
+  </body>
+</html>

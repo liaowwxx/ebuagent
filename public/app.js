@@ -88,6 +88,14 @@ const recPanel = document.querySelector("#recPanel");
 const recBackdrop = document.querySelector("#recBackdrop");
 const recToggle = document.querySelector("#recToggle");
 const recClose = document.querySelector(".rec-close");
+const adminEntryButton = document.querySelector("#adminEntryButton");
+const adminModal = document.querySelector("#adminModal");
+const adminModalClose = document.querySelector("#adminModalClose");
+const adminLoginForm = document.querySelector("#adminLoginForm");
+const adminUsername = document.querySelector("#adminUsername");
+const adminPassword = document.querySelector("#adminPassword");
+const adminLoginError = document.querySelector("#adminLoginError");
+const adminLoginSubmit = document.querySelector("#adminLoginSubmit");
 
 const starters = ["送礼零食", "榴莲甜品", "聚会红酒", "实惠小吃"];
 const privacyText = "数据隐私声明：您的聊天可能会被记录；聊天数据仅用于课程学习、服务优化等类似用途。";
@@ -119,6 +127,66 @@ function getSessionId() {
 const sessionId = getSessionId();
 
 const feedbackWidget = createFeedbackWidget();
+
+function showAdminLogin() {
+  adminModal.classList.remove("hidden");
+  adminModal.setAttribute("aria-hidden", "false");
+  adminLoginError.textContent = "";
+  adminPassword.value = "";
+  requestAnimationFrame(() => adminUsername.focus());
+}
+
+function hideAdminLogin() {
+  adminModal.classList.add("hidden");
+  adminModal.setAttribute("aria-hidden", "true");
+}
+
+async function checkAdminAuth() {
+  try {
+    const response = await fetch("/api/admin/check");
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function openAdmin() {
+  if (await checkAdminAuth()) {
+    window.location.href = "/admin.html";
+    return;
+  }
+  showAdminLogin();
+}
+
+async function handleAdminLogin(event) {
+  event.preventDefault();
+  const username = adminUsername.value.trim();
+  const password = adminPassword.value;
+  if (!username || !password) {
+    adminLoginError.textContent = "请输入管理员账号和密码。";
+    return;
+  }
+
+  adminLoginError.textContent = "";
+  adminLoginSubmit.disabled = true;
+  try {
+    const response = await fetch("/api/admin/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      adminLoginError.textContent = data.error || "登录失败。";
+      return;
+    }
+    window.location.href = "/admin.html";
+  } catch {
+    adminLoginError.textContent = "网络错误，请稍后再试。";
+  } finally {
+    adminLoginSubmit.disabled = false;
+  }
+}
 
 function openRecPanel() {
   recPanel.classList.add("open");
@@ -702,6 +770,12 @@ input.addEventListener("keydown", (event) => {
 recBackdrop.addEventListener("click", closeRecPanel);
 recToggle.addEventListener("click", toggleRecPanel);
 recClose.addEventListener("click", closeRecPanel);
+adminEntryButton.addEventListener("click", openAdmin);
+adminModalClose.addEventListener("click", hideAdminLogin);
+adminModal.addEventListener("click", (event) => {
+  if (event.target === adminModal) hideAdminLogin();
+});
+adminLoginForm.addEventListener("submit", handleAdminLogin);
 
 // ---- Init ----------------------------------------------------------------
 async function init() {

@@ -5,7 +5,6 @@ import {
   modelConfigFromEnv,
   sseHeaders
 } from "../../../src/recommendation-core.js";
-import { COOKIE_NAME, parseCookies, verifyToken } from "../../../src/auth.js";
 import {
   applyLogEvent,
   chatLogKey,
@@ -56,19 +55,6 @@ async function mergePendingEvents(env, entry) {
 }
 
 export async function onRequestPost({ request, env }) {
-  let user = null;
-  if (env.AUTH_USERNAME && env.AUTH_PASSWORD) {
-    const cookies = parseCookies(request.headers.get("Cookie") || "");
-    const payload = await verifyToken(cookies[COOKIE_NAME], env.AUTH_SECRET);
-    if (!payload) {
-      return new Response(JSON.stringify({ error: "请先登录。" }), {
-        status: 401,
-        headers: { "content-type": "application/json; charset=utf-8" }
-      });
-    }
-    user = { username: payload.username || "" };
-  }
-
   let body = {};
   try {
     body = await request.json();
@@ -91,7 +77,7 @@ export async function onRequestPost({ request, env }) {
     logContext: {
       requestId,
       sessionId,
-      user,
+      user: null,
       client: requestClientContext(request)
     },
     onLog: (entry) => saveChatLog(env, entry)

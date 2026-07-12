@@ -79,8 +79,7 @@ function compactLoggedRecommendation(product) {
     hasQrCode: product.hasQrCode,
     qrCodePath: product.qrCodePath,
     reason: product.reason,
-    angle: product.angle,
-    scanPrompt: product.scanPrompt
+    angle: product.angle
   };
 }
 
@@ -1044,9 +1043,8 @@ export async function createRecommendationStream({ message, history = [], produc
   return new ReadableStream({
     async start(controller) {
       const startedAt = new Date();
-      const conversation = buildLogConversation(history, message);
       const logEntry = {
-        schemaVersion: 2,
+        schemaVersion: 3,
         requestId: logContext.requestId || globalThis.crypto?.randomUUID?.() || fallbackId(),
         sessionId: logContext.sessionId || "unknown",
         startedAt: startedAt.toISOString(),
@@ -1054,9 +1052,9 @@ export async function createRecommendationStream({ message, history = [], produc
         durationMs: null,
         status: "started",
         mode: null,
-        user: logContext.user || null,
         client: logContext.client || {},
-        conversation,
+        userInput: message,
+        assistantText: "",
         intentPlan: null,
         toolCall: null,
         inventoryMatch: null,
@@ -1075,13 +1073,7 @@ export async function createRecommendationStream({ message, history = [], produc
           productDetailClicked: false
         },
         productDetailClicked: false,
-        error: null,
-        // Legacy shape retained so existing local/KV readers do not break immediately.
-        dialogue: {
-          userMessage: message,
-          history: conversation.history,
-          aiMessage: ""
-        }
+        error: null
       };
 
       const emit = (event, payload) => {
@@ -1091,8 +1083,7 @@ export async function createRecommendationStream({ message, history = [], produc
         }
         if (event === "token") {
           const text = payload?.text || "";
-          logEntry.dialogue.aiMessage += text;
-          logEntry.conversation.currentTurn.assistant.content += text;
+          logEntry.assistantText += text;
         }
         if (event === "error") {
           logEntry.status = "error";
@@ -1193,7 +1184,6 @@ export async function createRecommendationStream({ message, history = [], produc
       } finally {
         logEntry.endedAt = new Date().toISOString();
         logEntry.durationMs = Date.parse(logEntry.endedAt) - startedAt.getTime();
-        finalizeLogConversation(logEntry.conversation);
         if (onLog) {
           try {
             await onLog(logEntry);

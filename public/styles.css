@@ -249,7 +249,6 @@ h1 {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin-left: auto;
   padding: 8px 12px;
   border: 1px solid rgba(22, 160, 133, 0.18);
   border-radius: 999px;
@@ -257,6 +256,24 @@ h1 {
   background: rgba(22, 160, 133, 0.08);
   font-size: 13px;
   font-weight: 700;
+}
+
+.admin-entry {
+  min-height: 34px;
+  margin-left: auto;
+  padding: 0 11px;
+  border: 1px solid rgba(23, 32, 51, 0.1);
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.68);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.admin-entry:hover {
+  color: var(--accent-dark);
+  border-color: rgba(22, 160, 133, 0.24);
 }
 
 .status-pill span {
@@ -888,6 +905,99 @@ textarea:disabled {
   opacity: 0.58;
   cursor: wait;
   transform: none;
+}
+
+.admin-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(23, 32, 51, 0.32);
+}
+
+.admin-modal.hidden {
+  display: none;
+}
+
+.admin-login-card {
+  position: relative;
+  width: min(340px, 100%);
+  display: grid;
+  gap: 13px;
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 24px 70px rgba(40, 52, 84, 0.2);
+}
+
+.admin-login-card h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.admin-login-card label {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-login-card label span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.admin-login-card input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid rgba(23, 32, 51, 0.12);
+  border-radius: 10px;
+  outline: none;
+}
+
+.admin-login-card input:focus {
+  border-color: rgba(22, 160, 133, 0.55);
+  box-shadow: 0 0 0 4px rgba(22, 160, 133, 0.1);
+}
+
+.admin-modal-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+#adminLoginSubmit {
+  min-height: 42px;
+  border: 0;
+  border-radius: 10px;
+  color: #ffffff;
+  background: var(--accent-dark);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+#adminLoginSubmit:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.admin-login-error {
+  min-height: 18px;
+  margin: 0;
+  color: var(--rose);
+  font-size: 13px;
+  font-weight: 800;
 }
 
 @keyframes breathe {

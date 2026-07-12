@@ -66,7 +66,7 @@ async function readBody(req) {
   let body = "";
   for await (const chunk of req) {
     body += chunk;
-    if (body.length > 1024 * 32) {
+    if (body.length > 1024 * 1024) {
       throw new Error("Request body is too large.");
     }
   }
@@ -189,6 +189,7 @@ async function serveFile(req, res, filePath) {
 
 const COOKIE_NAME = "auth_token";
 const AUTH_ENABLED = !!(process.env.AUTH_USERNAME && process.env.AUTH_PASSWORD);
+const ADMIN_COOKIE_NAME = "admin_token";
 
 function parseCookieHeader(header) {
   const map = {};
@@ -228,10 +229,64 @@ function verifyTokenNode(token, secret) {
 }
 
 const loginLimiter = createRateLimiter({ maxAttempts: 5, windowMs: 60_000 });
+const adminLoginLimiter = createRateLimiter({ maxAttempts: 5, windowMs: 60_000 });
 
 function setCookieHeader(token) {
   const maxAge = 7 * 24 * 60 * 60;
   return `${COOKIE_NAME}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
+}
+
+function envValue(lowerName, upperName) {
+  return process.env[lowerName] || process.env[upperName] || "";
+}
+
+function adminConfigFromProcessEnv() {
+  const username = envValue("admin_username", "ADMIN_USERNAME");
+  const password = envValue("admin_password", "ADMIN_PASSWORD");
+  const secret =
+    envValue("admin_secret", "ADMIN_SECRET") ||
+    process.env.AUTH_SECRET ||
+    password;
+
+  return {
+    username,
+    password,
+    secret,
+    configured: Boolean(username && password && secret)
+  };
+}
+
+function setAdminCookieHeader(token) {
+  const maxAge = 7 * 24 * 60 * 60;
+  return `${ADMIN_COOKIE_NAME}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
+}
+
+function signAdminTokenNode(username, secret) {
+  return signTokenNode(
+    { username, admin: true, exp: Date.now() + 7 * 24 * 60 * 60 * 1000 },
+    secret
+  );
+}
+
+function getAdminPayload(req) {
+  const config = adminConfigFromProcessEnv();
+  if (!config.configured) return null;
+  const cookies = parseCookieHeader(req.headers.cookie);
+  const payload = verifyTokenNode(cookies[ADMIN_COOKIE_NAME], config.secret);
+  return payload?.admin ? payload : null;
+}
+
+function adminGuard(req, res) {
+  const config = adminConfigFromProcessEnv();
+  if (!config.configured) {
+    sendJson(res, 403, { error: "管理员账号未配置。" });
+    return false;
+  }
+  if (!getAdminPayload(req)) {
+    sendJson(res, 401, { error: "请先登录管理员账号。" });
+    return false;
+  }
+  return true;
 }
 
 async function handleLogin(req, res) {
@@ -277,18 +332,7 @@ async function handleLogin(req, res) {
 }
 
 function handleCheck(req, res) {
-  if (!AUTH_ENABLED) {
-    sendJson(res, 200, { authenticated: true });
-    return;
-  }
-
-  const cookies = parseCookieHeader(req.headers.cookie);
-  const payload = verifyTokenNode(cookies[COOKIE_NAME], process.env.AUTH_SECRET);
-  if (!payload) {
-    sendJson(res, 401, { authenticated: false });
-    return;
-  }
-  sendJson(res, 200, { authenticated: true, username: payload.username });
+  sendJson(res, 200, { authenticated: true });
 }
 
 function getAuthPayload(req) {
@@ -306,6 +350,58 @@ function authGuard(req, res) {
   return true;
 }
 
+async function handleAdminLogin(req, res) {
+  const config = adminConfigFromProcessEnv();
+  if (!config.configured) {
+    sendJson(res, 403, { error: "管理员账号未配置。" });
+    return;
+  }
+
+  const clientIp =
+    req.headers["cf-connecting-ip"] ||
+    req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+    req.socket.remoteAddress ||
+    "unknown";
+
+  const limit = adminLoginLimiter.check(clientIp);
+  if (!limit.allowed) {
+    res.writeHead(429, {
+      "content-type": "application/json; charset=utf-8",
+      "retry-after": String(limit.retryAfter)
+    });
+    res.end(JSON.stringify({ error: `尝试次数过多，请 ${limit.retryAfter} 秒后再试。` }));
+    return;
+  }
+
+  const { username, password } = await readBody(req);
+  if (String(username || "").trim() !== config.username || String(password || "") !== config.password) {
+    sendJson(res, 401, { error: "管理员账号或密码错误。" });
+    return;
+  }
+
+  const token = signAdminTokenNode(config.username, config.secret);
+  res.writeHead(200, {
+    "content-type": "application/json; charset=utf-8",
+    "set-cookie": setAdminCookieHeader(token)
+  });
+  res.end(JSON.stringify({ ok: true }));
+}
+
+function handleAdminCheck(req, res) {
+  const config = adminConfigFromProcessEnv();
+  if (!config.configured) {
+    sendJson(res, 403, { authenticated: false, error: "管理员账号未配置。" });
+    return;
+  }
+
+  const payload = getAdminPayload(req);
+  if (!payload) {
+    sendJson(res, 401, { authenticated: false, error: "请先登录管理员账号。" });
+    return;
+  }
+  sendJson(res, 200, { authenticated: true, username: payload.username || "" });
+}
+
 async function handleFeedback(req, res, user = null) {
   try {
     const body = await readBody(req);
@@ -320,6 +416,25 @@ async function handleFeedback(req, res, user = null) {
   }
 }
 
+async function handleAdminKv(req, res) {
+  if (req.method === "GET") {
+    sendJson(res, 503, {
+      error: "本地开发服务没有 Cloudflare KV 绑定。部署到 Cloudflare Pages 后可管理 CHAT_LOGS。"
+    });
+    return;
+  }
+
+  if (req.method === "POST") {
+    sendJson(res, 503, {
+      error: "本地开发服务不会批量下载或删除 Cloudflare KV。请在 Cloudflare Pages 环境使用此页面。"
+    });
+    return;
+  }
+
+  res.writeHead(405);
+  res.end("Method not allowed");
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
 
@@ -328,22 +443,32 @@ const server = createServer(async (req, res) => {
     handleCheck(req, res);
     return;
   }
+  if (req.method === "POST" && url.pathname === "/api/admin/login") {
+    await handleAdminLogin(req, res);
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/api/admin/check") {
+    handleAdminCheck(req, res);
+    return;
+  }
   if (AUTH_ENABLED && req.method === "POST" && url.pathname === "/api/login") {
     await handleLogin(req, res);
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/api/recommend/stream") {
-    if (!authGuard(req, res)) return;
-    const payload = getAuthPayload(req);
-    await handleRecommendStream(req, res, payload ? { username: payload.username || "" } : null);
+    await handleRecommendStream(req, res, null);
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/api/feedback") {
-    if (!authGuard(req, res)) return;
-    const payload = getAuthPayload(req);
-    await handleFeedback(req, res, payload ? { username: payload.username || "" } : null);
+    await handleFeedback(req, res, null);
+    return;
+  }
+
+  if (url.pathname === "/api/admin/kv") {
+    if (!adminGuard(req, res)) return;
+    await handleAdminKv(req, res);
     return;
   }
 

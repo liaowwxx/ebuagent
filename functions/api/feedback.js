@@ -1,4 +1,3 @@
-import { COOKIE_NAME, parseCookies, verifyToken } from "../../src/auth.js";
 import {
   applyLogEvent,
   chatLogKey,
@@ -19,15 +18,6 @@ function requestClientContext(request) {
     country: request.headers.get("CF-IPCountry") || "",
     colo: request.cf?.colo || ""
   };
-}
-
-async function authUser(request, env) {
-  if (!env.AUTH_USERNAME || !env.AUTH_PASSWORD) return null;
-
-  const cookies = parseCookies(request.headers.get("Cookie") || "");
-  const payload = await verifyToken(cookies[COOKIE_NAME], env.AUTH_SECRET);
-  if (!payload) return false;
-  return { username: payload.username || "" };
 }
 
 async function saveFeedbackEvent(env, event) {
@@ -59,14 +49,6 @@ async function saveFeedbackEvent(env, event) {
 }
 
 export async function onRequestPost({ request, env }) {
-  const user = await authUser(request, env);
-  if (user === false) {
-    return new Response(JSON.stringify({ error: "请先登录。" }), {
-      status: 401,
-      headers: { "content-type": "application/json; charset=utf-8" }
-    });
-  }
-
   let body = {};
   try {
     body = await request.json();
@@ -79,7 +61,7 @@ export async function onRequestPost({ request, env }) {
 
   try {
     const event = normalizeClientLogEvent(body, {
-      user,
+      user: null,
       client: requestClientContext(request)
     });
     const result = await saveFeedbackEvent(env, event);

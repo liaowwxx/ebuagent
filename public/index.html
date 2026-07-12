@@ -44,6 +44,7 @@
             <p class="eyebrow">智能推荐助手</p>
             <h1>告诉我你想买什么</h1>
           </div>
+          <button type="button" class="admin-entry" id="adminEntryButton">管理</button>
           <div class="status-pill">
             <span></span>
             在线
@@ -93,6 +94,23 @@
         <span>推荐</span>
       </button>
     </main>
+
+    <div id="adminModal" class="admin-modal hidden" aria-hidden="true">
+      <form id="adminLoginForm" class="admin-login-card">
+        <button type="button" class="admin-modal-close" id="adminModalClose" aria-label="关闭">×</button>
+        <h2>管理员登录</h2>
+        <label>
+          <span>账号</span>
+          <input id="adminUsername" type="text" autocomplete="username" placeholder="管理员账号" />
+        </label>
+        <label>
+          <span>密码</span>
+          <input id="adminPassword" type="password" autocomplete="current-password" placeholder="管理员密码" />
+        </label>
+        <p id="adminLoginError" class="admin-login-error"></p>
+        <button type="submit" id="adminLoginSubmit">进入管理</button>
+      </form>
+    </div>
 
     <script type="module" src="/app.js?v=20260625-planner"></script>
   </body>
