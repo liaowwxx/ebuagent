@@ -7,6 +7,7 @@
     "build:data": "python3 scripts/build-data.py",
     "prepare:public": "python3 scripts/prepare-public.py",
     "build": "npm run prepare:public",
-    "start": "node server.js"
+    "start": "node server.js",
+    "simulate": "node scripts/simulate-agents.mjs"
   }
 }

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="650" height="360" viewBox="0 0 650 360">
+<rect width="100%" height="100%" fill="#fff"/>
+<text x="325.0" y="28" text-anchor="middle" font-family="Arial, PingFang SC, sans-serif" font-size="18" font-weight="600">评分分布（n=221，均值 7.31）</text>
+<line x1="210" y1="315" x2="610" y2="315" stroke="#d0d0d0"/>
+<text x="202" y="90.8" text-anchor="end" font-family="Arial, PingFang SC, sans-serif" font-size="12" fill="#333">6分</text>
+<rect x="210" y="61.9" width="86.0" height="42.4" fill="#4c78a8" rx="2"/>
+<text x="302.0" y="90.8" font-family="Arial, PingFang SC, sans-serif" font-size="12" fill="#333">23</text>
+<text x="202" y="157.0" text-anchor="end" font-family="Arial, PingFang SC, sans-serif" font-size="12" fill="#333">7分</text>
+<rect x="210" y="128.2" width="400.0" height="42.4" fill="#4c78a8" rx="2"/>
+<text x="616.0" y="157.0" font-family="Arial, PingFang SC, sans-serif" font-size="12" fill="#333">107</text>
+<text x="202" y="223.3" text-anchor="end" font-family="Arial, PingFang SC, sans-serif" font-size="12" fill="#333">8分</text>
+<rect x="210" y="194.4" width="336.4" height="42.4" fill="#4c78a8" rx="2"/>
+<text x="552.4" y="223.3" font-family="Arial, PingFang SC, sans-serif" font-size="12" fill="#333">90</text>
+<text x="202" y="289.5" text-anchor="end" font-family="Arial, PingFang SC, sans-serif" font-size="12" fill="#333">9分</text>
+<rect x="210" y="260.7" width="3.7" height="42.4" fill="#4c78a8" rx="2"/>
+<text x="219.7" y="289.5" font-family="Arial, PingFang SC, sans-serif" font-size="12" fill="#333">1</text>
+<text x="410.0" y="348" text-anchor="middle" font-family="Arial, PingFang SC, sans-serif" font-size="12" fill="#555">请求数</text>
+</svg>

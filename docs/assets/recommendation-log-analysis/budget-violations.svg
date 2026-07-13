@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="650" height="330" viewBox="0 0 650 330">
+<rect width="100%" height="100%" fill="#fff"/>
+<text x="325.0" y="28" text-anchor="middle" font-family="Arial, PingFang SC, sans-serif" font-size="18" font-weight="600">预算约束执行情况</text>
+<line x1="210" y1="285" x2="610" y2="285" stroke="#d0d0d0"/>
+<text x="202" y="98.2" text-anchor="end" font-family="Arial, PingFang SC, sans-serif" font-size="12" fill="#333">有预算请求</text>
+<rect x="210" y="64.1" width="400.0" height="50.1" fill="#e45756" rx="2"/>
+<text x="616.0" y="98.2" font-family="Arial, PingFang SC, sans-serif" font-size="12" fill="#333">35</text>
+<text x="202" y="176.5" text-anchor="end" font-family="Arial, PingFang SC, sans-serif" font-size="12" fill="#333">至少 1 款超预算</text>
+<rect x="210" y="142.4" width="251.4" height="50.1" fill="#e45756" rx="2"/>
+<text x="467.4" y="176.5" font-family="Arial, PingFang SC, sans-serif" font-size="12" fill="#333">22</text>
+<text x="202" y="254.9" text-anchor="end" font-family="Arial, PingFang SC, sans-serif" font-size="12" fill="#333">全部推荐超预算</text>
+<rect x="210" y="220.8" width="45.7" height="50.1" fill="#e45756" rx="2"/>
+<text x="261.7" y="254.9" font-family="Arial, PingFang SC, sans-serif" font-size="12" fill="#333">4</text>
+<text x="410.0" y="318" text-anchor="middle" font-family="Arial, PingFang SC, sans-serif" font-size="12" fill="#555">请求数</text>
+</svg>

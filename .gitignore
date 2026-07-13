@@ -3,5 +3,4 @@
 node_modules/
 scripts/__pycache__/
 public/mini_qrcode_export/
-logs/
 CLAUDE.md
